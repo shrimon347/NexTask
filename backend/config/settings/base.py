@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "djoser",
     "social_django",
+    "users",
 ]
 
 MIDDLEWARE = [
@@ -98,6 +99,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 
+AUTH_USER_MODEL = "users.User"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
