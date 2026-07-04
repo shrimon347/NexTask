@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
 from os import getenv
 from pathlib import Path
 
@@ -62,8 +63,10 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corsheaders",
     "rest_framework",
+    "drf_spectacular",
     "djoser",
     "social_django",
+    "core",
     "users",
 ]
 
@@ -204,11 +207,12 @@ CELERY_TASK_DEFAULT_QUEUE = "emails"
 
 AUTHENTICATION_BACKENDS = [
     "social_core.backends.google.GoogleOAuth2",
-    "social_core.backends.facebook.FacebookOAuth2",
+    "social_core.backends.github.GithubOAuth2",
     "django.contrib.auth.backends.ModelBackend",
 ]
 
 REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "users.authentication.CustomJWTAuthentication",
     ],
@@ -226,6 +230,13 @@ REST_FRAMEWORK = {
     },
 }
 
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": False,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
+
 DJOSER = {
     "PASSWORD_RESET_CONFIRM_URL": "password-reset/{uid}/{token}",
     "SEND_ACTIVATION_EMAIL": True,
@@ -233,7 +244,21 @@ DJOSER = {
     "USER_CREATE_PASSWORD_RETYPE": True,
     "PASSWORD_RESET_CONFIRM_RETYPE": True,
     "TOKEN_MODEL": None,
-    "SOCIAL_AUTH_ALLOWED_REDIRECT_URIS": getenv("REDIRECT_URLS").split(","),
+    "LOGIN_FIELD": "email",
+    "SOCIAL_AUTH_ALLOWED_REDIRECT_URIS": [
+        uri.strip() for uri in getenv("REDIRECT_URLS", "").split(",") if uri.strip()
+    ],
+    "SERIALIZERS": {
+        "user_create": "users.serializers.RegisterSerializer",
+        "user_create_password_retype": "users.serializers.RegisterSerializer",
+        "user": "users.serializers.UserSerializer",
+        "current_user": "users.serializers.UserSerializer",
+    },
+    "EMAIL": {
+        "activation": "core.emails.AsyncActivationEmail",
+        "password_reset": "core.emails.AsyncPasswordResetEmail",
+        "password_changed_confirmation": "core.emails.AsyncPasswordChangedConfirmationEmail",
+    },
 }
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = getenv("GOOGLE_AUTH_KEY")
@@ -244,3 +269,55 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = [
     "openid",
 ]
 SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ["first_name", "last_name"]
+
+SOCIAL_AUTH_GITHUB_KEY = getenv("GITHUB_AUTH_KEY")
+SOCIAL_AUTH_GITHUB_SECRET = getenv("GITHUB_AUTH_SECRET_KEY")
+SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
+
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "NexTask",
+    "DESCRIPTION": "Production-ready DRF APIs with service-layer architecture.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SCHEMA_PATH_PREFIX": r"^/api/v[0-9]+",
+    "DISABLE_ERRORS_AND_WARNINGS": True,
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayRequestDuration": True,
+        "filter": True,
+        # Add the requestInterceptor here as a raw JS string
+        "requestInterceptor": (
+            "function (req) { "
+            "  req.credentials = 'include'; "
+            "  const getCookie = (name) => { "
+            "    const match = document.cookie.split('; ').find(c => c.trim().startsWith(name + '=')); "
+            "    return match ? decodeURIComponent(match.split('=')[1]) : null; "
+            "  }; "
+            "  const csrft = getCookie('csrftoken'); "
+            "  if (csrft) { req.headers['X-CSRFToken'] = csrft; } "
+            "  return req; "
+            "}"
+        ),
+    },
+    "SECURITY": [
+        {"cookieAuth": []},
+        {"BearerAuth": []},
+    ],
+    "COMPONENTS": {
+        "securitySchemes": {
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "access",
+                "description": "HttpOnly cookie auth. Use /api/v1/auth/login/ to obtain cookies.",
+            },
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            },
+        },
+    },
+}

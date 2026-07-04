@@ -1,114 +1,203 @@
-from django.conf import settings
-from djoser.social.views import ProviderAuthView
-from rest_framework import status
-from rest_framework.response import Response
+from django.contrib.auth.tokens import default_token_generator
+from djoser.serializers import (
+    ActivationSerializer,
+    PasswordResetConfirmRetypeSerializer,
+    SendEmailResetSerializer,
+)
+from rest_framework import serializers
+from rest_framework.generics import GenericAPIView
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
+from rest_framework_simplejwt.serializers import (
+    TokenRefreshSerializer,
+    TokenVerifySerializer,
 )
 
+from core.responses import APIResponse
+from users.serializers import (
+    LoginSerializer,
+    RegisterSerializer,
+    SocialAuthSerializer,
+    UserProfileUpdateSerializer,
+    UserSerializer,
+)
+from users.services import AuthService
+from users.utils import build_token_response, clear_auth_cookies, set_auth_cookies
 
-class CustomProviderAuthView(ProviderAuthView):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
 
-        if response.status_code == 201:
-            access_token = response.data.get("access")
-            refresh_token = response.data.get("refresh")
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "register"
+    serializer_class = RegisterSerializer
 
-            response.set_cookie(
-                "access",
-                access_token,
-                max_age=settings.AUTH_COOKIE_MAX_AGE,
-                path=settings.AUTH_COOKIE_PATH,
-                secure=settings.AUTH_COOKIE_SECURE,
-                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-                samesite=settings.AUTH_COOKIE_SAMESITE,
-            )
-            response.set_cookie(
-                "refresh",
-                refresh_token,
-                max_age=settings.AUTH_COOKIE_MAX_AGE,
-                path=settings.AUTH_COOKIE_PATH,
-                secure=settings.AUTH_COOKIE_SECURE,
-                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-                samesite=settings.AUTH_COOKIE_SAMESITE,
-            )
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = AuthService.register(serializer, request)
+        return APIResponse.created(
+            data=UserSerializer(user).data,
+            message="Registration successful. Check your email to activate your account.",
+        )
 
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "login"
+    serializer_class = LoginSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        return build_token_response(
+            serializer.validated_data,
+            message="Login successful.",
+        )
+
+
+class RefreshView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = TokenRefreshSerializer
+
+    def post(self, request):
+        data = request.data.copy()
+        if not data.get("refresh"):
+            refresh_token = request.COOKIES.get("refresh")
+            if refresh_token:
+                data["refresh"] = refresh_token
+
+        serializer = self.serializer_class(data=data)
+        serializer.is_valid(raise_exception=True)
+        token_data = {"access": serializer.validated_data["access"]}
+        response = APIResponse.success(
+            data=token_data, message="Token refreshed successfully."
+        )
+        set_auth_cookies(response, token_data["access"])
         return response
 
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
+class VerifyView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = TokenVerifySerializer
 
-        if response.status_code == 200:
-            access_token = response.data.get("access")
-            refresh_token = response.data.get("refresh")
+    def post(self, request):
+        data = request.data.copy()
+        if not data.get("token"):
+            access_token = request.COOKIES.get("access")
+            if access_token:
+                data["token"] = access_token
 
-            response.set_cookie(
-                "access",
-                access_token,
-                max_age=settings.AUTH_COOKIE_MAX_AGE,
-                path=settings.AUTH_COOKIE_PATH,
-                secure=settings.AUTH_COOKIE_SECURE,
-                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-                samesite=settings.AUTH_COOKIE_SAMESITE,
-            )
-            response.set_cookie(
-                "refresh",
-                refresh_token,
-                max_age=settings.AUTH_COOKIE_MAX_AGE,
-                path=settings.AUTH_COOKIE_PATH,
-                secure=settings.AUTH_COOKIE_SECURE,
-                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-                samesite=settings.AUTH_COOKIE_SAMESITE,
-            )
-
-        return response
-
-
-class CustomTokenRefreshView(TokenRefreshView):
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.COOKIES.get("refresh")
-
-        if refresh_token:
-            request.data["refresh"] = refresh_token
-
-        response = super().post(request, *args, **kwargs)
-
-        if response.status_code == 200:
-            access_token = response.data.get("access")
-
-            response.set_cookie(
-                "access",
-                access_token,
-                max_age=settings.AUTH_COOKIE_MAX_AGE,
-                path=settings.AUTH_COOKIE_PATH,
-                secure=settings.AUTH_COOKIE_SECURE,
-                httponly=settings.AUTH_COOKIE_HTTP_ONLY,
-                samesite=settings.AUTH_COOKIE_SAMESITE,
-            )
-
-        return response
-
-
-class CustomTokenVerifyView(TokenVerifyView):
-    def post(self, request, *args, **kwargs):
-        access_token = request.COOKIES.get("access")
-
-        if access_token:
-            request.data["token"] = access_token
-
-        return super().post(request, *args, **kwargs)
+        serializer = self.serializer_class(data=data)
+        serializer.is_valid(raise_exception=True)
+        return APIResponse.success(data=None, message="Token is valid.")
 
 
 class LogoutView(APIView):
-    def post(self, request, *args, **kwargs):
-        response = Response(status=status.HTTP_204_NO_CONTENT)
-        response.delete_cookie("access")
-        response.delete_cookie("refresh")
+    permission_classes = [AllowAny]
+    serializer_class = serializers.Serializer
 
+    def post(self, request):
+        response = APIResponse.no_content(message="Logged out successfully.")
+        clear_auth_cookies(response)
         return response
+
+
+class PasswordResetView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "password_reset"
+    serializer_class = SendEmailResetSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        AuthService.request_password_reset(serializer, request)
+        return APIResponse.success(
+            data=None,
+            message="If an account exists for that email, a reset link has been sent.",
+        )
+
+
+class PasswordResetConfirmView(GenericAPIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "password_reset"
+    serializer_class = PasswordResetConfirmRetypeSerializer
+    token_generator = default_token_generator
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        AuthService.confirm_password_reset(serializer, request)
+
+        return APIResponse.success(
+            data=None,
+            message="Password reset successful.",
+        )
+
+
+class ActivationView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "email_verify"
+    serializer_class = ActivationSerializer
+    token_generator = default_token_generator
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data, context={"view": self})
+        serializer.is_valid(raise_exception=True)
+        AuthService.activate_account(serializer, request)
+        return APIResponse.success(data=None, message="Account activated successfully.")
+
+
+class ResendActivationView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "email_verify"
+    serializer_class = SendEmailResetSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        AuthService.resend_activation(serializer, request)
+        return APIResponse.success(
+            data=None,
+            message="If an inactive account exists for that email, an activation link has been sent.",
+        )
+
+
+class MeView(APIView):
+    serializer_class = UserSerializer
+
+    def get(self, request):
+        serializer = self.serializer_class(request.user)
+        return APIResponse.success(
+            data=serializer.data, message="Profile retrieved successfully."
+        )
+
+
+class ProfileUpdateView(APIView):
+    serializer_class = UserProfileUpdateSerializer
+
+    def patch(self, request):
+        serializer = self.serializer_class(
+            request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        user = AuthService.update_profile(request.user, serializer, request)
+        return APIResponse.success(
+            data=UserSerializer(user).data,
+            message="Profile updated successfully.",
+        )
+
+
+class SocialAuthView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "login"
+    serializer_class = SocialAuthSerializer
+
+    def post(self, request, provider):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token_data = AuthService.social_login(
+            request, provider, serializer.validated_data
+        )
+        return build_token_response(token_data, message="Social login successful.")
