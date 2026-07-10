@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, re_path
 
 from users import views
 
@@ -26,16 +26,9 @@ urlpatterns = [
     ),
     path("auth/me/", views.MeView.as_view(), name="auth-me"),
     path("auth/profile/", views.ProfileUpdateView.as_view(), name="auth-profile"),
-    path(
-        "auth/social/google/",
-        views.SocialAuthView.as_view(),
-        {"provider": "google"},
-        name="auth-social-google",
-    ),
-    path(
-        "auth/social/github/",
-        views.SocialAuthView.as_view(),
-        {"provider": "github"},
-        name="auth-social-github",
+    re_path(
+        r"^auth/o/(?P<provider>\S+)/$",
+        views.CustomProviderAuthView.as_view(),
+        name="provider-auth",
     ),
 ]

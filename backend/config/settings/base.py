@@ -245,9 +245,7 @@ DJOSER = {
     "PASSWORD_RESET_CONFIRM_RETYPE": True,
     "TOKEN_MODEL": None,
     "LOGIN_FIELD": "email",
-    "SOCIAL_AUTH_ALLOWED_REDIRECT_URIS": [
-        uri.strip() for uri in getenv("REDIRECT_URLS", "").split(",") if uri.strip()
-    ],
+    "SOCIAL_AUTH_ALLOWED_REDIRECT_URIS": getenv("REDIRECT_URLS").split(","),
     "SERIALIZERS": {
         "user_create": "users.serializers.RegisterSerializer",
         "user_create_password_retype": "users.serializers.RegisterSerializer",
@@ -321,3 +319,17 @@ SPECTACULAR_SETTINGS = {
         },
     },
 }
+
+SOCIAL_AUTH_PIPELINE = (
+    "social_core.pipeline.social_auth.social_details",
+    "social_core.pipeline.social_auth.social_uid",
+    "social_core.pipeline.social_auth.auth_allowed",
+    "social_core.pipeline.social_auth.social_user",
+    "social_core.pipeline.user.get_username",
+    "social_core.pipeline.social_auth.associate_by_email",  # <--link by email
+    "social_core.pipeline.user.create_user",
+    "social_core.pipeline.social_auth.associate_user",
+    "social_core.pipeline.social_auth.load_extra_data",
+    "social_core.pipeline.user.user_details",
+    "users.social_pipeline.save_oauth_account",
+)

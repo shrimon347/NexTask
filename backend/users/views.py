@@ -4,6 +4,7 @@ from djoser.serializers import (
     PasswordResetConfirmRetypeSerializer,
     SendEmailResetSerializer,
 )
+from djoser.social.views import ProviderAuthView
 from rest_framework import serializers
 from rest_framework.generics import GenericAPIView
 from rest_framework.permissions import AllowAny
@@ -17,7 +18,6 @@ from core.responses import APIResponse
 from users.serializers import (
     LoginSerializer,
     RegisterSerializer,
-    SocialAuthSerializer,
     UserProfileUpdateSerializer,
     UserSerializer,
 )
@@ -189,15 +189,31 @@ class ProfileUpdateView(APIView):
         )
 
 
-class SocialAuthView(APIView):
-    permission_classes = [AllowAny]
-    throttle_scope = "login"
-    serializer_class = SocialAuthSerializer
+class CustomProviderAuthView(ProviderAuthView):
+    """
+    Wrapper around Djoser's ProviderAuthView.
 
-    def post(self, request, provider):
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        token_data = AuthService.social_login(
-            request, provider, serializer.validated_data
+    Preserves Djoser's social authentication flow while automatically
+    setting authentication cookies for both new and existing users.
+    """
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code not in (200, 201):
+            return response
+
+        payload = response.data if isinstance(response.data, dict) else {}
+        access = payload.get("access")
+        refresh = payload.get("refresh")
+
+        api_response = APIResponse.success(
+            data=payload,
+            message=payload.get("detail") or "Social login successful.",
+            status_code=response.status_code,
         )
-        return build_token_response(token_data, message="Social login successful.")
+
+        if access:
+            set_auth_cookies(api_response, access, refresh)
+
+        return api_response
