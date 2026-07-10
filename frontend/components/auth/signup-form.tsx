@@ -308,7 +308,7 @@ export function SignupForm({
                     <FieldDescription className="px-6 text-center">
                         Already have an account?{" "}
                         <Link
-                            href="/auth/login"
+                            href="/signin"
                             className="text-primary hover:underline font-medium"
                         >
                             Sign in
