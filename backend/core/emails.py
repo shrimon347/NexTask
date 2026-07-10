@@ -70,6 +70,9 @@ class _AsyncDjoserEmailMixin:
             to=list(to),
             template_name=self.template_name,
             context={
+                "protocol": context.get("protocol"),
+                "domain": context.get("domain"),
+                "site_name": context.get("site_name"),
                 "uid": context.get("uid"),
                 "token": context.get("token"),
                 "url": context.get("url"),

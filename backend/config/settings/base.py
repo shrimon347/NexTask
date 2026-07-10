@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from datetime import timedelta
 from os import getenv
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.core.management.utils import get_random_secret_key
 from dotenv import load_dotenv
@@ -41,6 +42,12 @@ SECRET_KEY = getenv("DJANGO_SECRET_KEY", get_random_secret_key())
 WEBSITE_URL = getenv("WEBSITE_URL", "http://localhost:8000")
 # Public web app (e.g. Next.js) — used in emails for links users click (verify-email, etc.).
 FRONTEND_URL = getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+_frontend_url = urlsplit(FRONTEND_URL)
+FRONTEND_PROTOCOL = _frontend_url.scheme or "http"
+FRONTEND_DOMAIN = _frontend_url.netloc or FRONTEND_URL.removeprefix(
+    "https://"
+).removeprefix("http://")
+FRONTEND_SITE_NAME = getenv("FRONTEND_SITE_NAME", "NexTask")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = getenv("DEBUG", "False") == "True"
@@ -241,6 +248,9 @@ DJOSER = {
     "PASSWORD_RESET_CONFIRM_URL": "password-reset/{uid}/{token}",
     "SEND_ACTIVATION_EMAIL": True,
     "ACTIVATION_URL": "activation/{uid}/{token}",
+    "EMAIL_FRONTEND_PROTOCOL": FRONTEND_PROTOCOL,
+    "EMAIL_FRONTEND_DOMAIN": FRONTEND_DOMAIN,
+    "EMAIL_FRONTEND_SITE_NAME": FRONTEND_SITE_NAME,
     "USER_CREATE_PASSWORD_RETYPE": True,
     "PASSWORD_RESET_CONFIRM_RETYPE": True,
     "TOKEN_MODEL": None,
