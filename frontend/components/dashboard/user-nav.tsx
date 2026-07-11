@@ -10,32 +10,13 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
-import { useLogoutMutation } from "@/redux/features/authApiSlice";
-import { logout as setLogout } from "@/redux/features/authSlice";
-import { useAppDispatch } from "@/redux/hooks";
 import { LogOutIcon, SettingsIcon, UserIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 export function UserNav() {
-    const router = useRouter();
-    const dispatch = useAppDispatch();
-    const { user, isLoading } = useAuth();
-    const [logoutUser] = useLogoutMutation();
-
-    // User data is directly on the user object
-    const userInitial = user?.name?.charAt(0)?.toUpperCase() || "U";
+    const { data: user, isLoading, logout, isLoggingOut } = useAuth();
+    const userInitial = user?.data?.name?.charAt(0)?.toUpperCase() || "U";
     const userEmail = user?.email || "user@example.com";
     const userAvatar = user?.avatar_url || undefined;
-
-    const handleLogout = async () => {
-        try {
-            await logoutUser().unwrap();
-            dispatch(setLogout());
-            router.push("/signin");
-        } catch (error) {
-            console.error("Logout error:", error);
-        }
-    };
 
     if (isLoading) {
         return (
@@ -82,8 +63,13 @@ export function UserNav() {
                     Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={handleLogout}>
+                <DropdownMenuItem
+                    variant="destructive"
+                    onClick={logout}
+                    disabled={isLoggingOut}
+                >
                     <LogOutIcon />
+                    {isLoggingOut ? "Logging out..." : "Log out"}
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>
