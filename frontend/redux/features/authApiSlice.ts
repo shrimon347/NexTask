@@ -26,7 +26,7 @@ const authApiSlice = apiSlice.injectEndpoints({
             SocialAuthArgs
         >({
             query: ({ provider, state, code }) => ({
-                url: `auth/o/${provider}/?state=${encodeURIComponent(
+                url: `/auth/o/${provider}/?state=${encodeURIComponent(
                     state,
                 )}&code=${encodeURIComponent(code)}`,
                 method: "POST",

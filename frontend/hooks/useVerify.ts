@@ -1,4 +1,3 @@
-// hooks/useVerify.ts
 "use client";
 
 import { useVerifyMutation } from "@/redux/features/authApiSlice";

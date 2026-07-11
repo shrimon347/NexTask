@@ -27,6 +27,11 @@ Wire it up in settings:
 from __future__ import annotations
 
 import logging
+import mimetypes
+from urllib.error import URLError
+from urllib.request import urlopen
+
+from django.core.files.base import ContentFile
 
 from .models import OAuthAccount, OAuthProvider
 
@@ -37,8 +42,68 @@ logger = logging.getLogger(__name__)
 # AUTHENTICATION_BACKENDS / SOCIAL_PROVIDERS (e.g. "google-oauth2", "github").
 BACKEND_TO_PROVIDER = {
     "google-oauth2": OAuthProvider.GOOGLE,
+    "google": OAuthProvider.GOOGLE,
     "github": OAuthProvider.GITHUB,
 }
+
+
+def _get_profile_name(response):
+    for key in ("name", "full_name", "display_name", "given_name"):
+        value = (response or {}).get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _get_avatar_url(response):
+    for key in ("picture", "avatar_url", "avatar", "image", "profile_image_url"):
+        value = (response or {}).get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _save_avatar_from_url(user, avatar_url):
+    if not avatar_url:
+        return False
+
+    try:
+        with urlopen(avatar_url) as remote_file:
+            content = remote_file.read()
+            content_type = remote_file.headers.get_content_type()
+    except (URLError, OSError, ValueError):
+        logger.warning("Unable to fetch social avatar from %s", avatar_url)
+        return False
+
+    extension = mimetypes.guess_extension(content_type or "") or ".jpg"
+    filename = f"social-avatar{extension}"
+    user.avatar.save(filename, ContentFile(content), save=False)
+    return True
+
+
+def _sync_social_profile(user, response):
+    updates = []
+
+    profile_name = _get_profile_name(response)
+    if profile_name and not (user.name or "").strip():
+        user.name = profile_name
+        updates.append("name")
+
+    avatar_url = _get_avatar_url(response)
+    if avatar_url and not user.avatar:
+        if _save_avatar_from_url(user, avatar_url):
+            updates.append("avatar")
+
+    if hasattr(user, "is_email_verified") and not user.is_email_verified:
+        user.is_email_verified = True
+        updates.append("is_email_verified")
+
+    if hasattr(user, "is_active") and not user.is_active:
+        user.is_active = True
+        updates.append("is_active")
+
+    if updates:
+        user.save(update_fields=updates)
 
 
 def save_oauth_account(backend, user, response, uid=None, *args, **kwargs):
@@ -55,6 +120,8 @@ def save_oauth_account(backend, user, response, uid=None, *args, **kwargs):
             "No OAuthProvider mapping for backend %r; skipping", backend.name
         )
         return
+
+    _sync_social_profile(user, response)
 
     provider_user_id = uid or backend.get_user_id(response)
 
