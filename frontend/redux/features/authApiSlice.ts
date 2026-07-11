@@ -1,10 +1,15 @@
 import { apiSlice } from "../services/apiSlice";
 
 interface User {
-    name: string;
+    id: string;
     email: string;
+    name: string;
+    avatar_url: string;
+    is_email_verified: boolean;
+    is_2fa_enabled: boolean;
+    created_at: string;
+    updated_at: string;
 }
-
 interface SocialAuthArgs {
     provider: string;
     state: string;
@@ -60,6 +65,7 @@ const authApiSlice = apiSlice.injectEndpoints({
             query: () => ({
                 url: "/auth/logout/",
                 method: "POST",
+                credentials: "include",
             }),
         }),
         activation: builder.mutation({

@@ -141,7 +141,7 @@ export function LoginForm({
                         {isLoading && (
                             <Spinner className="shrink-0 mr-2" aria-hidden />
                         )}
-                        {isLoading ? "Signing in..." : "Login"}
+                        {isLoading ? "Signing in..." : "Signin"}
                     </Button>
                     {submitError && (
                         <p
