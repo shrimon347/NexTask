@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     "social_django",
     "core",
     "users",
+    "workspaces",
 ]
 
 MIDDLEWARE = [
