@@ -41,26 +41,26 @@ export function getMenuList(pathname: string): Group[] {
             ],
         },
         {
-            groupLabel: "Contents",
+            groupLabel: "Workspace",
             menus: [
+                // {
+                //     href: "",
+                //     label: "Posts",
+                //     icon: SquarePen,
+                //     submenus: [
+                //         {
+                //             href: "/posts",
+                //             label: "All Posts",
+                //         },
+                //         {
+                //             href: "/posts/new",
+                //             label: "New Post",
+                //         },
+                //     ],
+                // },
                 {
-                    href: "",
-                    label: "Posts",
-                    icon: SquarePen,
-                    submenus: [
-                        {
-                            href: "/posts",
-                            label: "All Posts",
-                        },
-                        {
-                            href: "/posts/new",
-                            label: "New Post",
-                        },
-                    ],
-                },
-                {
-                    href: "/categories",
-                    label: "Categories",
+                    href: "/workspaces",
+                    label: "Workspaces",
                     icon: Bookmark,
                 },
                 {

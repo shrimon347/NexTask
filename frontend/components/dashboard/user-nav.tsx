@@ -15,8 +15,8 @@ import { LogOutIcon, SettingsIcon, UserIcon } from "lucide-react";
 export function UserNav() {
     const { data: user, isLoading, logout, isLoggingOut } = useAuth();
     const userInitial = user?.data?.name?.charAt(0)?.toUpperCase() || "U";
-    const userEmail = user?.email || "user@example.com";
-    const userAvatar = user?.avatar_url || undefined;
+    const userEmail = user?.data?.email || "user@example.com";
+    const userAvatar = user?.data?.avatar_url || undefined;
 
     if (isLoading) {
         return (
@@ -44,7 +44,7 @@ export function UserNav() {
                     <Avatar className="h-8 w-8">
                         <AvatarImage
                             src={userAvatar ?? "#"}
-                            alt={user?.name || "Avatar"}
+                            alt={user?.data?.name || "Avatar"}
                         />
                         <AvatarFallback className="bg-transparent">
                             {userInitial}

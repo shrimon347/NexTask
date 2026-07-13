@@ -1,6 +1,7 @@
 import { configureStore } from "@reduxjs/toolkit";
 import authReducer from "./features/authSlice";
 import sidebarReducer from "./features/sidebarSlice";
+import workspaceReducer from "./features/workspaceSlice";
 import { apiSlice } from "./services/apiSlice";
 
 export const store = configureStore({
@@ -8,6 +9,7 @@ export const store = configureStore({
         [apiSlice.reducerPath]: apiSlice.reducer,
         auth: authReducer,
         sidebar: sidebarReducer,
+        workspace: workspaceReducer,
     },
     middleware: (getDefaultMiddleware) =>
         getDefaultMiddleware().concat(apiSlice.middleware),

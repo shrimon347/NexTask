@@ -241,7 +241,7 @@ class WorkspaceService:
                 "id": str(membership.user.id),
                 "email": membership.user.email,
                 "name": membership.user.name,
-                "profile_picture": getattr(membership.user, "avatar", None),
+                "profile_picture": membership.user.avatar_url(),
                 "role": membership.role,
                 "joined_at": membership.joined_at.isoformat(),
             }
