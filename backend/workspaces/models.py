@@ -1,8 +1,11 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from core.models import BaseModel
+
+User = get_user_model()
 
 
 class WorkspaceRole(models.TextChoices):
@@ -65,17 +68,24 @@ class Workspace(BaseModel):
         Returns:
             QuerySet: User objects that are workspace members
         """
-        return settings.AUTH_USER_MODEL.objects.filter(
-            workspace_memberships__workspace=self
-        )
+        return User.objects.filter(workspace_memberships__workspace=self)
 
     @property
     def member_count(self):
         """Get total number of members in workspace.
 
+        Uses the prefetch cache when `workspace_memberships` has been
+        prefetched (avoids an extra query in list views); falls back to
+        a direct COUNT query for single-object access.
+
         Returns:
             int: Count of workspace members
         """
+        if (
+            hasattr(self, "_prefetched_objects_cache")
+            and "workspace_memberships" in self._prefetched_objects_cache
+        ):
+            return len(self.workspace_memberships.all())
         return self.workspace_memberships.count()
 
     @property
