@@ -12,10 +12,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { WorkspaceAvatar } from "@/components/workspaces/workspace-avatar";
+import { WorkspaceDialog } from "@/components/workspaces/WorkspaceDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { ChevronDown, PlusCircle, XCircle } from "lucide-react";
 import { useState } from "react";
-import { CreateWorkspaceDialog } from "../workspaces/CreateWorkspaceDialog";
 
 export function WorkspaceDropdown() {
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -158,11 +158,12 @@ export function WorkspaceDropdown() {
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <CreateWorkspaceDialog
+            <WorkspaceDialog
                 open={dialogOpen}
                 onOpenChange={setDialogOpen}
                 onSubmit={handleCreateWorkspace}
                 isLoading={isCreating}
+                mode="create"
             />
         </>
     );

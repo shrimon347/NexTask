@@ -1,4 +1,3 @@
-// components/workspace/CreateWorkspaceDialog.tsx
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,21 +26,20 @@ import {
     InputGroupTextarea,
 } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
-// Define 8 predefined colors
 export const colorOptions = [
-    "#FF5733", // Red-Orange
-    "#33C1FF", // Blue
-    "#28A745", // Green
-    "#FFC300", // Yellow
-    "#8E44AD", // Purple
-    "#E67E22", // Orange
-    "#2ECC71", // Light Green
-    "#34495E", // Navy
+    "#FF5733",
+    "#33C1FF",
+    "#28A745",
+    "#FFC300",
+    "#8E44AD",
+    "#E67E22",
+    "#2ECC71",
+    "#34495E",
 ];
 
-// Workspace schema
 const workspaceSchema = z.object({
     name: z
         .string()
@@ -56,36 +54,67 @@ const workspaceSchema = z.object({
 
 export type WorkspaceForm = z.infer<typeof workspaceSchema>;
 
-interface CreateWorkspaceDialogProps {
+interface WorkspaceDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSubmit: (data: WorkspaceForm) => Promise<void>;
     isLoading?: boolean;
+    mode?: "create" | "update";
+    initialValues?: Partial<WorkspaceForm>;
 }
 
-export function CreateWorkspaceDialog({
+const defaultWorkspaceValues: WorkspaceForm = {
+    name: "",
+    description: "",
+    color: colorOptions[0],
+};
+
+export function WorkspaceDialog({
     open,
     onOpenChange,
     onSubmit,
     isLoading,
-}: CreateWorkspaceDialogProps) {
+    mode = "create",
+    initialValues,
+}: WorkspaceDialogProps) {
     const form = useForm<WorkspaceForm>({
         resolver: zodResolver(workspaceSchema),
         defaultValues: {
-            name: "",
-            description: "",
-            color: colorOptions[0],
+            ...defaultWorkspaceValues,
+            ...initialValues,
         },
     });
+
+    useEffect(() => {
+        if (!open) return;
+
+        form.reset({
+            ...defaultWorkspaceValues,
+            ...initialValues,
+        });
+    }, [open, initialValues, form]);
+
+    const title = mode === "update" ? "Edit Workspace" : "Create Workspace";
+    const successMessage =
+        mode === "update" ? "Workspace updated" : "Workspace created";
+    const errorMessage =
+        mode === "update"
+            ? "Failed to update workspace"
+            : "Failed to create workspace";
+    const submitLabel = mode === "update" ? "Save changes" : "Create";
+    const loadingLabel = mode === "update" ? "Saving..." : "Creating...";
 
     const handleSubmit = async (data: WorkspaceForm) => {
         try {
             await onSubmit(data);
-            form.reset();
-            toast.success("Workspace created");
+            form.reset({
+                ...defaultWorkspaceValues,
+                ...initialValues,
+            });
+            toast.success(successMessage);
         } catch (error) {
-            console.error("Failed to create workspace:", error);
-            toast.error("Failed to create workspace");
+            console.error(errorMessage, error);
+            toast.error(errorMessage);
         }
     };
 
@@ -93,17 +122,14 @@ export function CreateWorkspaceDialog({
         <Dialog open={open} onOpenChange={onOpenChange} modal>
             <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle className="text-xl">
-                        Create Workspace
-                    </DialogTitle>
+                    <DialogTitle className="text-xl">{title}</DialogTitle>
                 </DialogHeader>
 
                 <form
-                    id="create-workspace-form"
+                    id="workspace-form"
                     onSubmit={form.handleSubmit(handleSubmit)}
                 >
                     <FieldGroup>
-                        {/* Workspace Name */}
                         <Controller
                             name="name"
                             control={form.control}
@@ -129,7 +155,6 @@ export function CreateWorkspaceDialog({
                             )}
                         />
 
-                        {/* Workspace Description */}
                         <Controller
                             name="description"
                             control={form.control}
@@ -163,7 +188,6 @@ export function CreateWorkspaceDialog({
                             )}
                         />
 
-                        {/* Workspace Color */}
                         <Controller
                             name="color"
                             control={form.control}
@@ -200,7 +224,10 @@ export function CreateWorkspaceDialog({
                             type="button"
                             variant="outline"
                             onClick={() => {
-                                form.reset();
+                                form.reset({
+                                    ...defaultWorkspaceValues,
+                                    ...initialValues,
+                                });
                                 onOpenChange(false);
                             }}
                             disabled={isLoading}
@@ -211,10 +238,10 @@ export function CreateWorkspaceDialog({
                             {isLoading ? (
                                 <>
                                     <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                    Creating...
+                                    {loadingLabel}
                                 </>
                             ) : (
-                                "Create"
+                                submitLabel
                             )}
                         </Button>
                     </DialogFooter>

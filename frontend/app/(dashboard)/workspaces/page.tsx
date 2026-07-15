@@ -2,8 +2,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { CreateWorkspaceDialog } from "@/components/workspaces/CreateWorkspaceDialog";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
+import { WorkspaceDialog } from "@/components/workspaces/WorkspaceDialog";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { PlusCircle } from "lucide-react";
 import { useState } from "react";
@@ -61,11 +61,12 @@ export default function WorkspacesPage() {
                     Create Workspace
                 </Button>
 
-                <CreateWorkspaceDialog
+                <WorkspaceDialog
                     open={dialogOpen}
                     onOpenChange={setDialogOpen}
                     onSubmit={handleCreateWorkspace}
                     isLoading={isCreating}
+                    mode="create"
                 />
             </div>
         );
@@ -99,11 +100,12 @@ export default function WorkspacesPage() {
                 ))}
             </div>
 
-            <CreateWorkspaceDialog
+            <WorkspaceDialog
                 open={dialogOpen}
                 onOpenChange={setDialogOpen}
                 onSubmit={handleCreateWorkspace}
                 isLoading={isCreating}
+                mode="create"
             />
         </div>
     );

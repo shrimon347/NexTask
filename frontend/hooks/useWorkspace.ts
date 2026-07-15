@@ -1,4 +1,3 @@
-// hooks/useWorkspace.ts
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import {
@@ -9,13 +8,16 @@ import { useAppDispatch, useAppSelector } from "@/redux/hooks";
 import {
     useCreateWorkspaceMutation,
     useDeleteWorkspaceMutation,
+    useGetWorkspaceQuery,
     useGetWorkspacesQuery,
+    useUpdateWorkspaceMutation,
 } from "@/redux/services/workspaceApiSlice";
 import { RootState } from "@/redux/store";
+import { skipToken } from "@reduxjs/toolkit/query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
 
-// Define types - matching your API response
+// Define types
 interface Workspace {
     id: string;
     name: string;
@@ -30,13 +32,32 @@ interface Workspace {
     updated_at: string;
 }
 
+interface WorkspaceDetail extends Workspace {
+    owner: {
+        id: string;
+        email: string;
+        name: string;
+    };
+    project_count: number;
+    members: Array<{
+        id: string;
+        email: string;
+        name: string;
+        profile_picture: string;
+        role: string;
+        joined_at: string;
+    }>;
+}
+
 interface CreateWorkspaceData {
     name: string;
     description?: string;
     color?: string;
 }
 
-export const useWorkspace = () => {
+type UpdateWorkspaceData = CreateWorkspaceData;
+
+export const useWorkspace = (workspaceId?: string) => {
     const dispatch = useAppDispatch();
     const router = useRouter();
     const pathname = usePathname();
@@ -46,21 +67,34 @@ export const useWorkspace = () => {
         (state: RootState) => state.workspace.selectedWorkspace,
     );
 
-    const { data, isLoading, error } = useGetWorkspacesQuery(undefined, {
+    // Resolve the active workspace ID from the caller or the URL.
+    const currentWorkspaceId = workspaceId ?? searchParams.get("workspaceId");
+
+    // Get all workspaces (list view)
+    const {
+        data,
+        isLoading: isLoadingWorkspaces,
+        error,
+    } = useGetWorkspacesQuery(undefined, {
         refetchOnFocus: false,
         keepUnusedDataFor: 3600,
     });
+
+    const {
+        data: workspaceDetailData,
+        isLoading: isLoadingWorkspaceDetail,
+        error: workspaceDetailError,
+        refetch: refetchWorkspaceDetail,
+    } = useGetWorkspaceQuery(currentWorkspaceId ?? skipToken);
 
     // Extract workspaces from the response
     const workspaces = useMemo(() => {
         if (!data) return [];
 
-        // If data is already an array (if base apiSlice already extracted)
         if (Array.isArray(data)) {
             return data;
         }
 
-        // If data has a data property that's an array (your API response)
         if (
             typeof data === "object" &&
             "data" in data &&
@@ -72,64 +106,102 @@ export const useWorkspace = () => {
         return [];
     }, [data]);
 
+    // Extract workspace detail from response
+    const workspaceDetail = useMemo(() => {
+        if (!workspaceDetailData) return null;
+
+        // If response has data property
+        if (
+            typeof workspaceDetailData === "object" &&
+            "data" in workspaceDetailData &&
+            workspaceDetailData.data
+        ) {
+            return (workspaceDetailData as any).data as WorkspaceDetail;
+        }
+
+        return workspaceDetailData as WorkspaceDetail;
+    }, [workspaceDetailData]);
+
+    // Find selected workspace from the list or use detail
+    const resolvedSelectedWorkspace = useMemo(() => {
+        const isWorkspaceListPage = pathname === "/workspaces";
+
+        if (isWorkspaceListPage && !currentWorkspaceId) {
+            return null;
+        }
+
+        // If we have detail data, use it
+        if (workspaceDetail) {
+            return workspaceDetail;
+        }
+
+        // If we have a selected workspace in Redux, use it
+        if (selectedWorkspace) {
+            return selectedWorkspace;
+        }
+
+        // Try to find from workspaces list using current ID
+        if (currentWorkspaceId && workspaces.length > 0) {
+            return workspaces.find((w) => w.id === currentWorkspaceId) || null;
+        }
+
+        return null;
+    }, [
+        workspaceDetail,
+        selectedWorkspace,
+        workspaces,
+        currentWorkspaceId,
+        pathname,
+    ]);
+
+    const getWorkspaceRoute = (nextWorkspaceId?: string) =>
+        nextWorkspaceId ? `/workspaces/${nextWorkspaceId}` : "/workspaces";
+
     const [createWorkspaceMutation, { isLoading: isCreating }] =
         useCreateWorkspaceMutation();
     const [deleteWorkspaceMutation, { isLoading: isDeleting }] =
         useDeleteWorkspaceMutation();
+    const [updateWorkspaceMutation, { isLoading: isUpdating }] =
+        useUpdateWorkspaceMutation();
 
-    // Restore selection from URL on load
+    // Update Redux when workspace changes
     useEffect(() => {
-        if (workspaces.length === 0) return;
-
-        const workspaceId = searchParams.get("workspaceId");
-
-        if (workspaceId) {
-            const workspace = workspaces.find((w) => w.id === workspaceId);
-            if (workspace) {
-                dispatch(setSelectedWorkspace(workspace));
-                return;
-            }
+        if (
+            resolvedSelectedWorkspace &&
+            resolvedSelectedWorkspace.id !== selectedWorkspace?.id
+        ) {
+            dispatch(setSelectedWorkspace(resolvedSelectedWorkspace));
         }
+    }, [resolvedSelectedWorkspace, selectedWorkspace, dispatch]);
 
-        // If selected workspace doesn't exist anymore, clear it
-        if (selectedWorkspace) {
-            const stillExists = workspaces.some(
-                (w) => w.id === selectedWorkspace.id,
-            );
-            if (!stillExists) {
-                dispatch(clearSelectedWorkspace());
-            }
+    useEffect(() => {
+        if (
+            pathname === "/workspaces" &&
+            !currentWorkspaceId &&
+            selectedWorkspace
+        ) {
+            dispatch(clearSelectedWorkspace());
         }
-    }, [workspaces, searchParams, selectedWorkspace, dispatch]);
+    }, [pathname, currentWorkspaceId, selectedWorkspace, dispatch]);
 
     const selectWorkspace = (workspace: Workspace) => {
         dispatch(setSelectedWorkspace(workspace));
 
-        const isOnWorkspacePage = pathname?.includes("/workspace") || false;
-        if (isOnWorkspacePage) {
-            router.push(`/workspaces/${workspace.id}`);
-        } else {
-            const params = new URLSearchParams(searchParams?.toString() || "");
-            params.set("workspaceId", workspace.id);
-            router.push(`${pathname}/${params.toString()}`);
-        }
+        router.push(getWorkspaceRoute(workspace.id));
     };
 
     const clearWorkspaceSelection = () => {
         dispatch(clearSelectedWorkspace());
-        const params = new URLSearchParams(searchParams?.toString() || "");
-        params.delete("workspaceId");
-        router.push(`${pathname}?${params.toString()}`);
+
+        router.push(getWorkspaceRoute());
     };
 
     const createWorkspace = async (data: CreateWorkspaceData) => {
         try {
             const result = await createWorkspaceMutation(data).unwrap();
 
-            // Handle the response - your API might return { data: { id: "...", ... } }
             let newWorkspace = result;
 
-            // If result has a data property (nested response from create)
             if (
                 result &&
                 typeof result === "object" &&
@@ -139,10 +211,6 @@ export const useWorkspace = () => {
                 newWorkspace = (result as any).data;
             }
 
-            // Log to debug
-            console.log("Created workspace:", newWorkspace);
-
-            // Make sure we have an id
             if (!newWorkspace?.id) {
                 console.error("No workspace ID in response:", result);
                 throw new Error("Failed to get workspace ID from response");
@@ -153,6 +221,31 @@ export const useWorkspace = () => {
             return newWorkspace;
         } catch (error) {
             console.error("Failed to create workspace:", error);
+            throw error;
+        }
+    };
+
+    const updateWorkspace = async (id: string, data: UpdateWorkspaceData) => {
+        try {
+            const result = await updateWorkspaceMutation({ id, data }).unwrap();
+
+            const baseWorkspace =
+                workspaceDetail ||
+                selectedWorkspace ||
+                workspaces.find((workspace) => workspace.id === id) ||
+                null;
+
+            const updatedWorkspace = {
+                ...(baseWorkspace || {}),
+                ...result,
+                ...data,
+                id,
+            };
+
+            dispatch(setSelectedWorkspace(updatedWorkspace as any));
+            return updatedWorkspace;
+        } catch (error) {
+            console.error("Failed to update workspace:", error);
             throw error;
         }
     };
@@ -170,15 +263,28 @@ export const useWorkspace = () => {
     };
 
     return {
+        // Data
         workspaces,
-        selectedWorkspace,
-        isLoading,
+        selectedWorkspace: resolvedSelectedWorkspace,
+        workspaceDetail,
+        currentWorkspaceId,
+
+        // Loading states
+        isLoading: isLoadingWorkspaces || isLoadingWorkspaceDetail,
+        isWorkspaceDetailLoading: isLoadingWorkspaceDetail,
         isCreating,
+        isUpdating,
         isDeleting,
-        error,
+
+        // Errors
+        error: error || workspaceDetailError,
+
+        // Actions
         selectWorkspace,
         clearWorkspaceSelection,
         createWorkspace,
+        updateWorkspace,
         deleteWorkspace,
+        refetchWorkspaceDetail,
     };
 };
