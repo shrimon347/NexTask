@@ -1,19 +1,24 @@
-"""Custom exceptions for workspace app."""
+"""Workspace-specific exceptions built on top of global API exceptions."""
+
+from core.exceptions import NotFound, PermissionDenied
 
 
-class WorkspaceNotFound(Exception):
+class WorkspaceNotFound(NotFound):
     """Raised when a workspace is not found."""
 
-    pass
+    default_detail = "The requested workspace could not be found."
+    default_code = "workspace_not_found"
 
 
-class WorkspacePermissionDenied(Exception):
+class WorkspacePermissionDenied(PermissionDenied):
     """Raised when user lacks permission for workspace operation."""
 
-    pass
+    default_detail = "You do not have permission to perform this workspace action."
+    default_code = "workspace_permission_denied"
 
 
-class WorkspaceMemberNotFound(Exception):
+class WorkspaceMemberNotFound(NotFound):
     """Raised when a workspace member is not found."""
 
-    pass
+    default_detail = "The requested workspace member could not be found."
+    default_code = "workspace_member_not_found"

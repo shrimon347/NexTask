@@ -1,10 +1,10 @@
 import logging
 from typing import Dict, List, Optional
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, OuterRef, Prefetch, Q, Subquery
 
+from core.exceptions import ValidationError
 from workspaces.exceptions import (
     WorkspaceMemberNotFound,
     WorkspaceNotFound,

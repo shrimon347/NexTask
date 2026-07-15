@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "core",
     "users",
     "workspaces",
+    "projects",
 ]
 
 MIDDLEWARE = [

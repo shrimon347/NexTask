@@ -1,10 +1,10 @@
 import logging
 
-from django.core.exceptions import ValidationError
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
+from core.exceptions import ValidationError
 from core.responses import APIResponse
 
 from .exceptions import (
