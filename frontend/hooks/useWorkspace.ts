@@ -111,7 +111,7 @@ export const useWorkspace = () => {
         } else {
             const params = new URLSearchParams(searchParams?.toString() || "");
             params.set("workspaceId", workspace.id);
-            router.push(`${pathname}?${params.toString()}`);
+            router.push(`${pathname}/${params.toString()}`);
         }
     };
 

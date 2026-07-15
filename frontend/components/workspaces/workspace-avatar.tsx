@@ -21,7 +21,7 @@ export function WorkspaceAvatar({
 
     return (
         <div
-            className={`${sizes[size]} rounded-full flex items-center justify-center font-semibold text-white shrink-0`}
+            className={`${sizes[size]} rounded-sm flex items-center justify-center font-semibold text-white shrink-0`}
             style={{ backgroundColor: color || "#6366f1" }}
         >
             <span className="text-xs font-medium text-white">

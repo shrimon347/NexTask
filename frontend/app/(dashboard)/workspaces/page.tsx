@@ -2,18 +2,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
 import { CreateWorkspaceDialog } from "@/components/workspaces/CreateWorkspaceDialog";
-import { WorkspaceAvatar } from "@/components/workspaces/workspace-avatar";
+import { WorkspaceCard } from "@/components/workspaces/workspace-card";
 import { useWorkspace } from "@/hooks/useWorkspace";
-import { cn } from "@/lib/utils";
-import { Check, ChevronDown, PlusCircle } from "lucide-react";
+import { PlusCircle } from "lucide-react";
 import { useState } from "react";
 
 export default function WorkspacesPage() {
@@ -98,73 +90,12 @@ export default function WorkspacesPage() {
             {/* Workspace Grid */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {workspaces.map((ws) => (
-                    <Card
+                    <WorkspaceCard
                         key={ws.id}
-                        className={cn(
-                            "group cursor-pointer transition-all hover:shadow-lg",
-                            selectedWorkspace?.id === ws.id
-                                ? "border-primary bg-primary/5"
-                                : "hover:border-primary/50",
-                        )}
-                        onClick={() => selectWorkspace(ws)}
-                    >
-                        <CardHeader className="flex flex-row items-start gap-4 space-y-0">
-                            <WorkspaceAvatar
-                                color={ws.color || "#6366f1"}
-                                name={ws.name}
-                                size="lg"
-                            />
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between">
-                                    <CardTitle className="truncate">
-                                        {ws.name}
-                                    </CardTitle>
-                                    {selectedWorkspace?.id === ws.id && (
-                                        <Check className="h-4 w-4 text-primary shrink-0 mt-1" />
-                                    )}
-                                </div>
-                                <CardDescription className="text-xs">
-                                    Created{" "}
-                                    {new Date(ws.created_at).toLocaleDateString(
-                                        "en-US",
-                                        {
-                                            month: "long",
-                                            day: "numeric",
-                                            year: "numeric",
-                                        },
-                                    )}
-                                </CardDescription>
-                            </div>
-                        </CardHeader>
-
-                        <CardContent className="space-y-3">
-                            {ws.description && (
-                                <p className="text-sm text-muted-foreground line-clamp-2">
-                                    {ws.description}
-                                </p>
-                            )}
-
-                            <div className="flex items-center justify-between pt-2 border-t">
-                                <span className="text-xs text-muted-foreground">
-                                    {ws.member_count || 1} member
-                                    {ws.member_count !== 1 ? "s" : ""}
-                                    {ws.role && ` · ${ws.role}`}
-                                </span>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 text-xs text-muted-foreground hover:text-primary gap-1"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        selectWorkspace(ws);
-                                    }}
-                                >
-                                    View details
-                                    <ChevronDown className="h-3 w-3 rotate-[-90deg]" />
-                                </Button>
-                            </div>
-                        </CardContent>
-                    </Card>
+                        workspace={ws}
+                        isSelected={selectedWorkspace?.id === ws.id}
+                        onSelect={() => selectWorkspace(ws)}
+                    />
                 ))}
             </div>
 
