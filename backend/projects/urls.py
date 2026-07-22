@@ -9,11 +9,12 @@ from .views import (
     ProjectDetailView,
     ProjectListCreateView,
     ProjectMemberAddView,
+    ProjectMemberBulkAddView,
     ProjectMemberRemoveView,
     ProjectMemberUpdateRoleView,
+    ProjectMemberUpdateTagsView,
     ProjectProgressUpdateView,
     ProjectStatusUpdateView,
-    ProjectMemberUpdateTagsView
 )
 
 app_name = "projects"
@@ -55,6 +56,11 @@ urlpatterns = [
         name="project-member-add",
     ),
     path(
+        "projects/<uuid:project_id>/members/bulk-add/",
+        ProjectMemberBulkAddView.as_view(),
+        name="project-member-bulk-add",
+    ),
+    path(
         "projects/<uuid:project_id>/members/remove/",
         ProjectMemberRemoveView.as_view(),
         name="project-member-remove",
@@ -65,7 +71,7 @@ urlpatterns = [
         name="project-member-update-role",
     ),
     path(
-        "<uuid:project_id>/members/tags/",
+        "projects/<uuid:project_id>/members/tags/",
         ProjectMemberUpdateTagsView.as_view(),
         name="project-member-update-tags",
     ),

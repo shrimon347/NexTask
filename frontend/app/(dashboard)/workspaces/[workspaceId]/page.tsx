@@ -1,5 +1,7 @@
 "use client";
 
+import type { ProjectForm } from "@/components/projects/ProjectDialog";
+import { ProjectDialog } from "@/components/projects/ProjectDialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,43 +13,132 @@ import {
 } from "@/components/ui/card";
 import { WorkspaceDialog } from "@/components/workspaces/WorkspaceDialog";
 import { WorkspaceAvatar } from "@/components/workspaces/workspace-avatar";
+import { useProjects } from "@/hooks/useProject";
 import { useWorkspace } from "@/hooks/useWorkspace";
+import { cn } from "@/lib/utils";
+import type { ProjectListItem } from "@/redux/services/projectApiSlice";
 import {
+    AlertCircle,
     ArrowLeft,
     Calendar,
+    CheckCircle,
+    Clock,
     Edit,
     FolderOpen,
     PlusCircle,
     Trash2,
     Users,
+    XCircle,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
+
+const statusConfig = {
+    planning: { label: "Planning", color: "bg-blue-500", icon: Clock },
+    in_progress: {
+        label: "In Progress",
+        color: "bg-yellow-500",
+        icon: AlertCircle,
+    },
+    on_hold: { label: "On Hold", color: "bg-orange-500", icon: AlertCircle },
+    completed: { label: "Completed", color: "bg-green-500", icon: CheckCircle },
+    cancelled: { label: "Cancelled", color: "bg-red-500", icon: XCircle },
+};
 
 export default function WorkspaceDetailPage() {
     const params = useParams();
     const router = useRouter();
     const workspaceId = params?.workspaceId as string;
 
+    // ============ State ============
     const [isEditingWorkspace, setIsEditingWorkspace] = useState(false);
-    // const [isCreatingProject, setIsCreatingProject] = useState(false);
+    const [projectDialog, setProjectDialog] = useState<{
+        open: boolean;
+        mode: "create" | "update";
+        project?: ProjectListItem;
+    }>({ open: false, mode: "create" });
 
+    // ============ Workspace hooks ============
     const {
         workspaceDetail,
         selectedWorkspace,
-        isLoading,
+        isLoading: isWorkspaceLoading,
         isWorkspaceDetailLoading,
         isUpdating,
         deleteWorkspace,
         updateWorkspace,
     } = useWorkspace(workspaceId);
 
-    const handleDelete = async () => {
+    // ============ Project hooks ============
+    const {
+        projects,
+        isLoading: isProjectsLoading,
+        isCreating,
+        isUpdating: isUpdatingProject,
+        createProject,
+        updateProject,
+        deleteProject,
+    } = useProjects({
+        workspaceId,
+        queryParams: {
+            sort_by: "created_at",
+            sort_order: "desc",
+            is_archived: false,
+        },
+    });
+    console.log("projects:", projects);
+    console.log("projects type:", Array.isArray(projects));
+    // ============ Computed Values ============
+    const workspace = workspaceDetail || selectedWorkspace;
+    const members = workspaceDetail?.members || [];
+    const projectCount = workspaceDetail?.project_count || 0;
+    const isLoading =
+        isWorkspaceLoading || isWorkspaceDetailLoading || isProjectsLoading;
+    const isProjectDialogLoading =
+        projectDialog.mode === "create" ? isCreating : isUpdatingProject;
+
+    // ============ Handlers ============
+
+    const handleOpenCreateDialog = () => {
+        setProjectDialog({ open: true, mode: "create" });
+    };
+
+    const handleOpenEditDialog = (project: ProjectListItem) => {
+        setProjectDialog({ open: true, mode: "update", project });
+    };
+
+    const handleCloseProjectDialog = () => {
+        setProjectDialog((prev) => ({ ...prev, open: false }));
+    };
+
+    const handleProjectSubmit = async (data: ProjectForm) => {
+        if (projectDialog.mode === "create") {
+            await createProject(data);
+        } else if (projectDialog.project) {
+            await updateProject(projectDialog.project.id, data);
+        }
+        handleCloseProjectDialog();
+    };
+
+    const handleWorkspaceUpdate = async (data: any) => {
+        await updateWorkspace(workspaceId, data);
+        setIsEditingWorkspace(false);
+    };
+
+    const handleDeleteWorkspace = async () => {
         if (confirm("Are you sure you want to delete this workspace?")) {
             await deleteWorkspace(workspaceId);
             router.push("/workspaces");
         }
     };
+
+    const handleDeleteProject = async (projectId: string) => {
+        if (confirm("Are you sure you want to delete this project?")) {
+            await deleteProject(projectId);
+        }
+    };
+
+    // ============ Helpers ============
 
     const getInitials = (name: string) => {
         return name?.charAt(0)?.toUpperCase() || "U";
@@ -61,11 +152,8 @@ export default function WorkspaceDetailPage() {
         });
     };
 
-    const workspace = workspaceDetail || selectedWorkspace;
-    const members = workspaceDetail?.members || [];
-    const projectCount = workspaceDetail?.project_count || 0;
-
-    if (isLoading || isWorkspaceDetailLoading) {
+    // ============ Loading State ============
+    if (isLoading) {
         return (
             <div className="flex items-center justify-center h-[60vh]">
                 <p className="text-muted-foreground">Loading workspace...</p>
@@ -73,6 +161,7 @@ export default function WorkspaceDetailPage() {
         );
     }
 
+    // ============ Not Found State ============
     if (!workspace) {
         return (
             <div className="flex flex-col items-center justify-center h-[60vh] text-center">
@@ -89,9 +178,10 @@ export default function WorkspaceDetailPage() {
         );
     }
 
+    // ============ Main Render ============
     return (
-        <div >
-            {/* Header - same as before */}
+        <div>
+            {/* Header */}
             <div className="border-b bg-card">
                 <div className="mx-auto px-4 sm:px-6 lg:px-8 py-6">
                     <Button
@@ -149,7 +239,7 @@ export default function WorkspaceDetailPage() {
                             <Button
                                 variant="destructive"
                                 className="gap-2"
-                                onClick={handleDelete}
+                                onClick={handleDeleteWorkspace}
                             >
                                 <Trash2 className="h-4 w-4" />
                                 Delete
@@ -159,7 +249,7 @@ export default function WorkspaceDetailPage() {
                 </div>
             </div>
 
-            {/* Content - same as before */}
+            {/* Content */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Main Content - Projects */}
@@ -169,14 +259,14 @@ export default function WorkspaceDetailPage() {
                             <Button
                                 variant="outline"
                                 className="gap-2"
-                                onClick={() => setIsCreatingProject(true)}
+                                onClick={handleOpenCreateDialog}
                             >
                                 <PlusCircle className="h-4 w-4" />
                                 Create Project
                             </Button>
                         </div>
 
-                        {projectCount === 0 ? (
+                        {projects.length === 0 ? (
                             <Card className="border-dashed border-2 bg-muted/20">
                                 <CardHeader>
                                     <CardTitle className="text-lg">
@@ -191,9 +281,7 @@ export default function WorkspaceDetailPage() {
                                     <Button
                                         variant="default"
                                         className="gap-2"
-                                        onClick={() =>
-                                            setIsCreatingProject(true)
-                                        }
+                                        onClick={handleOpenCreateDialog}
                                     >
                                         <PlusCircle className="h-4 w-4" />
                                         Create Project
@@ -202,7 +290,110 @@ export default function WorkspaceDetailPage() {
                             </Card>
                         ) : (
                             <div className="grid gap-4">
-                                {/* Project cards will go here */}
+                                {projects.map((project) => {
+                                    const status =
+                                        statusConfig[project.status] ||
+                                        statusConfig.planning;
+                                    const StatusIcon = status.icon;
+
+                                    return (
+                                        <Card
+                                            key={project.id}
+                                            className="hover:shadow-md transition-shadow cursor-pointer"
+                                            onClick={() =>
+                                                router.push(
+                                                    `/projects/${project.id}`,
+                                                )
+                                            }
+                                        >
+                                            <CardHeader className="flex flex-row items-start justify-between">
+                                                <div className="space-y-1">
+                                                    <CardTitle className="text-lg">
+                                                        {project.title}
+                                                    </CardTitle>
+                                                    {project.description && (
+                                                        <CardDescription className="line-clamp-2">
+                                                            {
+                                                                project.description
+                                                            }
+                                                        </CardDescription>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span
+                                                        className={cn(
+                                                            "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-white",
+                                                            status.color,
+                                                        )}
+                                                    >
+                                                        <StatusIcon className="h-3 w-3" />
+                                                        {status.label}
+                                                    </span>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleOpenEditDialog(
+                                                                project,
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-destructive hover:text-destructive"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteProject(
+                                                                project.id,
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                                    <span>
+                                                        Progress:{" "}
+                                                        {project.progress}%
+                                                    </span>
+                                                    {project.due_date && (
+                                                        <span>
+                                                            Due:{" "}
+                                                            {formatDate(
+                                                                project.due_date,
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                    <span>
+                                                        {project.member_count}{" "}
+                                                        members
+                                                    </span>
+                                                    {project.is_overdue && (
+                                                        <span className="text-destructive font-medium">
+                                                            Overdue
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {project.progress > 0 && (
+                                                    <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-primary transition-all"
+                                                            style={{
+                                                                width: `${project.progress}%`,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -267,10 +458,7 @@ export default function WorkspaceDetailPage() {
             <WorkspaceDialog
                 open={isEditingWorkspace}
                 onOpenChange={setIsEditingWorkspace}
-                onSubmit={async (data) => {
-                    await updateWorkspace(workspaceId, data);
-                    setIsEditingWorkspace(false);
-                }}
+                onSubmit={handleWorkspaceUpdate}
                 isLoading={isUpdating}
                 mode="update"
                 initialValues={{
@@ -280,15 +468,27 @@ export default function WorkspaceDetailPage() {
                 }}
             />
 
-            {/* <CreateProjectDialog
-                open={isCreatingProject}
-                onOpenChange={setIsCreatingProject}
-                workspaceId={workspaceId}
-                onSubmit={async (data) => {
-                    setIsCreatingProject(false);
-                }}
-                isLoading={false}
-            /> */}
+            <ProjectDialog
+                open={projectDialog.open}
+                onOpenChange={handleCloseProjectDialog}
+                onSubmit={handleProjectSubmit}
+                isLoading={isProjectDialogLoading}
+                mode={projectDialog.mode}
+                initialValues={
+                    projectDialog.mode === "update" && projectDialog.project
+                        ? {
+                              title: projectDialog.project.title,
+                              description:
+                                  projectDialog.project.description || "",
+                              status: projectDialog.project.status,
+                              start_date:
+                                  projectDialog.project.start_date || "",
+                              due_date: projectDialog.project.due_date || "",
+                              progress: projectDialog.project.progress,
+                          }
+                        : undefined
+                }
+            />
         </div>
     );
 }

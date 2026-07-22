@@ -1,3 +1,4 @@
+# services/project_service.py
 import logging
 import uuid
 from typing import Dict, List, Optional
@@ -31,6 +32,7 @@ class ProjectService:
     - Archive/unarchive projects (soft delete)
     - List projects with optimized N+1 safe queries
     - Provide project details with member information
+    - Bulk member operations with partial success
     """
 
     def __init__(self):
@@ -51,6 +53,8 @@ class ProjectService:
         start_date: Optional[str] = None,
         due_date: Optional[str] = None,
         progress: int = 0,
+        tags: Optional[List[str]] = None,
+        members: Optional[List[Dict]] = None,
     ) -> Dict:
         """
         Create a new project within a workspace.
@@ -59,7 +63,8 @@ class ProjectService:
         - User must be a workspace member with minimum 'member' role
         - Project title must be unique within workspace (case-insensitive)
         - Title is trimmed before validation
-        - Creator automatically becomes project manager
+        - Creator automatically becomes project manager with tags
+        - Additional members added if provided (must be workspace members)
         - Progress auto-set to 0 for planning, 100 for completed status
 
         Args:
@@ -71,6 +76,8 @@ class ProjectService:
             start_date: Optional start date
             due_date: Optional due date
             progress: Completion percentage (default: 0)
+            tags: Optional list of tags for creator's membership
+            members: Optional list of {"user": uuid, "role": str} dicts
 
         Returns:
             Dict: Project detail payload
@@ -85,11 +92,12 @@ class ProjectService:
         normalized_description = description.strip() if description else ""
 
         self.logger.info(
-            "Creating project for user %s: title=%s, workspace=%s, status=%s",
+            "Creating project for user %s: title=%s, workspace=%s, status=%s, members=%d",
             user.email,
             normalized_title,
             workspace_id,
             status,
+            len(members) if members else 0,
         )
 
         # Verify workspace exists and user is member
@@ -128,19 +136,72 @@ class ProjectService:
             created_by=user,
         )
 
-        # Add creator as manager member
+        # Add creator as manager member with tags
         ProjectMember.objects.create(
             project=project,
             user=user,
             role=ProjectMemberRole.MANAGER,
+            tags=tags or [],
         )
 
+        # Add additional members if provided
+        added_members = []
+        failed_members = []
+
+        if members:
+            for member_data in members:
+                try:
+                    member_user = self._get_user(member_data["user"])
+
+                    # Verify workspace membership
+                    if not workspace.is_member(member_user):
+                        failed_members.append(
+                            {
+                                "user": str(member_data["user"]),
+                                "error": "User is not a workspace member.",
+                            }
+                        )
+                        continue
+
+                    # Skip if already added (creator)
+                    if member_user.id == user.id:
+                        continue
+
+                    # Check if already a project member
+                    if self._is_project_member(project, member_user):
+                        failed_members.append(
+                            {
+                                "user": str(member_data["user"]),
+                                "email": member_user.email,
+                                "error": "User is already a member of this project.",
+                            }
+                        )
+                        continue
+
+                    # Create membership
+                    ProjectMember.objects.create(
+                        project=project,
+                        user=member_user,
+                        role=member_data.get("role", ProjectMemberRole.CONTRIBUTOR),
+                    )
+                    added_members.append(str(member_data["user"]))
+
+                except ProjectMemberNotFound:
+                    failed_members.append(
+                        {
+                            "user": str(member_data["user"]),
+                            "error": "User not found.",
+                        }
+                    )
+
         self.logger.info(
-            "Project created successfully. ID: %s, User: %s, Title: %s, Status: %s",
+            "Project created successfully. ID: %s, User: %s, Title: %s, Status: %s, Added: %d, Failed: %d",
             project.id,
             user.email,
             normalized_title,
             status,
+            len(added_members),
+            len(failed_members),
         )
 
         # Return full details
@@ -371,11 +432,14 @@ class ProjectService:
         - Title uniqueness is validated if title is being changed
         - Cannot update archived projects (unarchive first)
         - Progress auto-updates based on status changes
+        - tags: None=skip, []=clear, [...] = replace creator's tags
+        - members: None=skip, []=clear all, [...] = replace all members
 
         Args:
             user: User instance (request.user)
             project_id: Project UUID as string
-            **update_fields: Fields to update
+            **update_fields: Fields to update (title, description, status,
+                start_date, due_date, progress, is_archived, tags, members)
 
         Returns:
             Dict: Updated project detail payload
@@ -398,8 +462,8 @@ class ProjectService:
         # Verify permission (project manager or workspace admin)
         self._verify_can_manage(project, user)
 
-        # Cannot update archived projects
-        if project.is_archived and "is_archived" not in update_fields:
+        # Cannot update archived projects (unless unarchiving)
+        if project.is_archived and not update_fields.get("is_archived"):
             self.logger.warning(
                 "Update attempted on archived project. ID: %s, User: %s",
                 project_id,
@@ -408,6 +472,10 @@ class ProjectService:
             raise ValidationError(
                 "Cannot update an archived project. Unarchive it first."
             )
+
+        # Extract non-model fields
+        tags = update_fields.pop("tags", None)
+        members = update_fields.pop("members", None)
 
         # Validate title uniqueness if changing title
         if "title" in update_fields:
@@ -420,16 +488,27 @@ class ProjectService:
 
         # Handle status transition logic
         if "status" in update_fields:
-            new_status = update_fields["status"]
+            new_status = update_fields.pop("status")
             self._apply_status_transition(project, new_status)
-            # Remove status from update_fields to avoid double-setting
-            status = update_fields.pop("status")
 
-        # Apply updates
+        # Apply model field updates
         for field, value in update_fields.items():
             setattr(project, field, value)
 
         project.save()
+
+        # Handle tags update (creator's membership tags)
+        if tags is not None:
+            creator_membership = ProjectMember.objects.get(
+                project=project,
+                user=project.created_by,
+            )
+            creator_membership.tags = tags
+            creator_membership.save(update_fields=["tags", "updated_at"])
+
+        # Handle members update (replace all members)
+        if members is not None:
+            self._replace_project_members(project, members)
 
         self.logger.info(
             "Project updated successfully. ID: %s, User: %s",
@@ -768,6 +847,103 @@ class ProjectService:
 
         # Return updated details
         return self.get_project_details(user=user, project_id=project_id)
+
+    @transaction.atomic
+    def add_members_bulk(
+        self,
+        user,
+        project_id: str,
+        members: List[Dict],
+    ) -> Dict:
+        """
+        Add multiple members to project in bulk.
+
+        Business Rules:
+        - Only project manager or workspace admin can add members
+        - All users must be workspace members
+        - Users already in project are skipped with warning
+        - Partial success: successful additions are saved, failures reported
+
+        Args:
+            user: User instance (request.user)
+            project_id: Project UUID as string
+            members: List of {"user": uuid, "role": str} dicts
+
+        Returns:
+            Dict: {
+                "project": project_detail_dict,
+                "added": [user_ids],
+                "failed": [{"user": uuid, "error": str}]
+            }
+        """
+        self.logger.info(
+            "Bulk adding %d members to project %s by user %s",
+            len(members),
+            project_id,
+            user.email,
+        )
+
+        project = self._get_project(project_id)
+        self._verify_can_manage(project, user)
+
+        added = []
+        failed = []
+
+        for member_data in members:
+            try:
+                member_user = self._get_user(member_data["user"])
+                role = member_data.get("role", ProjectMemberRole.CONTRIBUTOR)
+
+                # Verify workspace membership
+                if not project.workspace.is_member(member_user):
+                    failed.append(
+                        {
+                            "user": str(member_data["user"]),
+                            "email": member_user.email,
+                            "error": "User is not a workspace member.",
+                        }
+                    )
+                    continue
+
+                # Check if already a project member
+                if self._is_project_member(project, member_user):
+                    failed.append(
+                        {
+                            "user": str(member_data["user"]),
+                            "email": member_user.email,
+                            "error": "User is already a project member.",
+                        }
+                    )
+                    continue
+
+                # Create membership
+                ProjectMember.objects.create(
+                    project=project,
+                    user=member_user,
+                    role=role,
+                )
+                added.append(str(member_data["user"]))
+
+            except ProjectMemberNotFound:
+                failed.append(
+                    {
+                        "user": str(member_data["user"]),
+                        "error": "User not found.",
+                    }
+                )
+
+        self.logger.info(
+            "Bulk member addition complete. Project: %s, Added: %d, Failed: %d",
+            project_id,
+            len(added),
+            len(failed),
+        )
+
+        return {
+            "project": self.get_project_details(user=user, project_id=project_id),
+            "added": added,
+            "failed": failed,
+        }
 
     @transaction.atomic
     def remove_member(self, user, project_id: str, member_id: uuid.UUID) -> Dict:
@@ -1278,6 +1454,59 @@ class ProjectService:
             old_status,
             new_status,
             project.progress,
+        )
+
+    def _replace_project_members(self, project: Project, members: List[Dict]) -> None:
+        """
+        Replace all project members with new list.
+
+        Keeps the creator as manager. Removes all other members
+        and adds the new ones. Validates workspace membership.
+
+        Args:
+            project: Project instance
+            members: List of {"user": uuid, "role": str} dicts
+        """
+        # Get creator's membership (must be preserved)
+        creator_membership = ProjectMember.objects.get(
+            project=project,
+            user=project.created_by,
+        )
+
+        # Remove all non-creator members
+        ProjectMember.objects.filter(project=project).exclude(
+            id=creator_membership.id
+        ).delete()
+
+        # Add new members
+        added_count = 0
+        for member_data in members:
+            try:
+                member_user = self._get_user(member_data["user"])
+
+                # Skip creator (already a member)
+                if member_user.id == project.created_by.id:
+                    continue
+
+                # Skip if not workspace member
+                if not project.workspace.is_member(member_user):
+                    continue
+
+                # Create membership
+                ProjectMember.objects.create(
+                    project=project,
+                    user=member_user,
+                    role=member_data.get("role", ProjectMemberRole.CONTRIBUTOR),
+                )
+                added_count += 1
+
+            except ProjectMemberNotFound:
+                continue
+
+        self.logger.info(
+            "Project members replaced. Project: %s, New members added: %d",
+            project.id,
+            added_count,
         )
 
     # =========================================================================

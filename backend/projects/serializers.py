@@ -1,6 +1,34 @@
+# serializers/project_serializers.py
 from rest_framework import serializers
 
 from projects.models import ProjectMemberRole, ProjectStatus
+
+
+class ProjectMemberBulkSerializer(serializers.Serializer):
+    """
+    Serializer for a single member in bulk operations.
+
+    Validates:
+    - user: Required, valid UUID format
+    - role: Required, one of 'manager', 'contributor', 'viewer'
+    """
+
+    user = serializers.UUIDField(
+        required=True,
+        error_messages={
+            "required": "User ID is required.",
+            "invalid": "Invalid user ID format. Must be a valid UUID.",
+        },
+    )
+
+    role = serializers.ChoiceField(
+        choices=ProjectMemberRole.choices,
+        required=True,
+        error_messages={
+            "required": "Role is required.",
+            "invalid_choice": "Invalid role. Must be one of: manager, contributor, viewer.",
+        },
+    )
 
 
 class ProjectCreateSerializer(serializers.Serializer):
@@ -14,8 +42,11 @@ class ProjectCreateSerializer(serializers.Serializer):
     - start_date: Optional, valid date format
     - due_date: Optional, valid date format, must be after start_date
     - progress: Optional, 0-100 integer (default: 0)
+    - tags: Optional, comma-separated string (e.g., "frontend, backend")
+    - members: Optional, list of member objects with user and role
 
     Note: Workspace membership and title uniqueness are validated in service layer.
+    Tags are applied to creator's membership. Members must be workspace members.
     """
 
     title = serializers.CharField(
@@ -78,6 +109,26 @@ class ProjectCreateSerializer(serializers.Serializer):
         },
     )
 
+    tags = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        error_messages={
+            "max_length": "Tags cannot exceed 500 characters.",
+        },
+    )
+
+    members = serializers.ListField(
+        child=ProjectMemberBulkSerializer(),
+        required=False,
+        default=list,
+        allow_empty=True,
+        error_messages={
+            "invalid": "Members must be a list of member objects with user and role.",
+        },
+    )
+
     def validate_title(self, value):
         """Validate that title is not whitespace-only after trimming."""
         if not value or not value.strip():
@@ -90,6 +141,40 @@ class ProjectCreateSerializer(serializers.Serializer):
         """Clean description by stripping whitespace if provided."""
         if value:
             return value.strip()
+        return value
+
+    def validate_tags(self, value):
+        """
+        Parse comma-separated tags string into list.
+
+        Supports:
+        - "frontend, backend" → ['frontend', 'backend']
+        - "frontend" → ['frontend']
+        - "" or None → []
+        """
+        if not value:
+            return []
+
+        tags = [tag.strip() for tag in value.split(",") if tag.strip()]
+
+        # Remove duplicates preserving order (case-insensitive)
+        seen = set()
+        unique_tags = []
+        for tag in tags:
+            if tag.lower() not in seen:
+                seen.add(tag.lower())
+                unique_tags.append(tag)
+
+        return unique_tags
+
+    def validate_members(self, value):
+        """Validate no duplicate users in members list."""
+        if value:
+            user_ids = [str(m["user"]) for m in value]
+            if len(user_ids) != len(set(user_ids)):
+                raise serializers.ValidationError(
+                    "Duplicate users found in members list."
+                )
         return value
 
     def validate(self, data):
@@ -129,16 +214,25 @@ class ProjectUpdateSerializer(serializers.Serializer):
     Serializer for project update input validation.
 
     All fields are optional for partial updates.
+    Only provided fields will be updated.
     At least one field must be provided.
+
+    Update Behavior:
+    - None/missing field: Skip update, keep existing value
+    - Empty string "": Clear the field
+    - Provided value: Update to new value
+    - members list: Replace ALL existing members (not append)
 
     Validates:
     - title: Optional, non-empty, max 200 chars
-    - description: Optional, allows blank/null
+    - description: Optional, allows blank/null to clear
     - status: Optional, must be valid project status
-    - start_date: Optional, valid date format
-    - due_date: Optional, valid date format
+    - start_date: Optional, valid date format, null to clear
+    - due_date: Optional, valid date format, null to clear
     - progress: Optional, 0-100 integer
     - is_archived: Optional, boolean
+    - tags: Optional, comma-separated string, blank to clear
+    - members: Optional, list of member objects (replaces existing)
 
     Note: Workspace membership, permissions, and status transitions
     are validated in service layer.
@@ -208,6 +302,25 @@ class ProjectUpdateSerializer(serializers.Serializer):
         },
     )
 
+    tags = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        error_messages={
+            "max_length": "Tags cannot exceed 500 characters.",
+        },
+    )
+
+    members = serializers.ListField(
+        child=ProjectMemberBulkSerializer(),
+        required=False,
+        allow_empty=True,
+        error_messages={
+            "invalid": "Members must be a list of member objects with user and role.",
+        },
+    )
+
     def validate_title(self, value):
         """Validate title if provided, ensure not whitespace-only."""
         if value is not None:
@@ -219,9 +332,51 @@ class ProjectUpdateSerializer(serializers.Serializer):
         return value
 
     def validate_description(self, value):
-        """Clean description if provided."""
+        """
+        Handle description update.
+        None = don't update, '' = clear, 'text' = update.
+        """
         if value is not None and value:
             return value.strip()
+        return value
+
+    def validate_tags(self, value):
+        """
+        Parse tags string if provided.
+        None = don't update, '' = clear all, 'tag1, tag2' = set new.
+        """
+        if value is None:
+            return None
+
+        if not value.strip():
+            return []
+
+        tags = [tag.strip() for tag in value.split(",") if tag.strip()]
+
+        seen = set()
+        unique_tags = []
+        for tag in tags:
+            if tag.lower() not in seen:
+                seen.add(tag.lower())
+                unique_tags.append(tag)
+
+        return unique_tags
+
+    def validate_members(self, value):
+        """
+        Handle members update.
+        None = don't update, [] = clear all, [...] = replace all.
+        """
+        if value is None:
+            return None
+
+        if value:
+            user_ids = [str(m["user"]) for m in value]
+            if len(user_ids) != len(set(user_ids)):
+                raise serializers.ValidationError(
+                    "Duplicate users found in members list."
+                )
+
         return value
 
     def validate(self, data):
@@ -593,3 +748,54 @@ class ProjectArchiveSerializer(serializers.Serializer):
             "invalid": "is_archived must be a boolean value.",
         },
     )
+
+
+class ProjectMemberBulkRequestSerializer(serializers.Serializer):
+    """
+    Serializer for bulk member addition request.
+
+    Validates:
+    - members: Required, non-empty list of member objects
+
+    Note: Max 50 members per bulk operation. Partial success supported.
+    """
+
+    members = serializers.ListField(
+        child=ProjectMemberBulkSerializer(),
+        required=True,
+        allow_empty=False,
+        min_length=1,
+        error_messages={
+            "required": "Members list is required.",
+            "empty": "Members list cannot be empty.",
+            "min_length": "At least one member must be provided.",
+        },
+    )
+
+    def validate_members(self, value):
+        """Validate no duplicate users and max 50 members."""
+        if len(value) > 50:
+            raise serializers.ValidationError(
+                "Cannot add more than 50 members in a single bulk operation."
+            )
+
+        user_ids = [str(m["user"]) for m in value]
+        if len(user_ids) != len(set(user_ids)):
+            raise serializers.ValidationError("Duplicate users found in members list.")
+
+        return value
+
+
+class ProjectBulkOperationResponseSerializer(serializers.Serializer):
+    """
+    Serializer for bulk operation response.
+
+    Fields:
+    - project: Updated project details
+    - added: List of successfully added user IDs
+    - failed: List of failed additions with reasons
+    """
+
+    project = ProjectDetailSerializer(read_only=True)
+    added = serializers.ListField(read_only=True)
+    failed = serializers.ListField(read_only=True)

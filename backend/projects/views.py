@@ -12,11 +12,13 @@ from .exceptions import ProjectMemberNotFound, ProjectNotFound, ProjectPermissio
 from .mixins import ProjectServiceMixin
 from .serializers import (
     ProjectArchiveSerializer,
+    ProjectBulkOperationResponseSerializer,
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectListQuerySerializer,
     ProjectListSerializer,
     ProjectMemberAddSerializer,
+    ProjectMemberBulkRequestSerializer,
     ProjectMemberRemoveSerializer,
     ProjectMemberUpdateRoleSerializer,
     ProjectMemberUpdateTagsSerializer,
@@ -49,7 +51,11 @@ class ProjectListCreateView(ProjectServiceMixin, APIView):
             "status": "planning",
             "start_date": "2024-01-01",
             "due_date": "2024-12-31",
-            "progress": 0
+            "progress": 0,
+            "tags": "frontend, backend",
+            "members": [
+                {"user": "uuid", "role": "contributor"}
+            ]
         }
     """
 
@@ -181,7 +187,7 @@ class ProjectListCreateView(ProjectServiceMixin, APIView):
     @extend_schema(
         operation_id="projects_create",
         summary="Create Project",
-        description="Create a new project in a workspace. The authenticated user automatically becomes the project manager.",
+        description="Create a new project in a workspace with optional tags and members. The authenticated user automatically becomes the project manager.",
         request=ProjectCreateSerializer,
         responses={
             201: ProjectDetailSerializer,
@@ -230,6 +236,8 @@ class ProjectListCreateView(ProjectServiceMixin, APIView):
                 start_date=validated_data.get("start_date"),
                 due_date=validated_data.get("due_date"),
                 progress=validated_data.get("progress", 0),
+                tags=validated_data.get("tags", []),
+                members=validated_data.get("members", []),
             )
 
             # Serialize response
@@ -361,7 +369,7 @@ class ProjectDetailView(ProjectServiceMixin, APIView):
     @extend_schema(
         operation_id="projects_update",
         summary="Update Project",
-        description="Update project details. Only project managers or workspace admins can update. At least one field must be provided.",
+        description="Update project details including tags and members. Only project managers or workspace admins can update. At least one field must be provided.",
         request=ProjectUpdateSerializer,
         responses={
             200: ProjectDetailSerializer,
@@ -1014,6 +1022,117 @@ class ProjectMemberAddView(ProjectServiceMixin, APIView):
         return formatted
 
 
+class ProjectMemberBulkAddView(ProjectServiceMixin, APIView):
+    """
+    Bulk add members to project endpoint.
+
+    POST /api/v1/projects/{project_id}/members/bulk-add/
+
+    Request Body:
+        {
+            "members": [
+                {"user": "uuid1", "role": "contributor"},
+                {"user": "uuid2", "role": "viewer"}
+            ]
+        }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="projects_bulk_add_members",
+        summary="Bulk Add Project Members",
+        description="Add multiple members to a project in a single operation. Partial success supported - successful additions saved, failures reported.",
+        request=ProjectMemberBulkRequestSerializer,
+        responses={
+            200: ProjectBulkOperationResponseSerializer,
+            400: OpenApiResponse(description="Validation error - invalid request data"),
+            401: OpenApiResponse(description="Unauthorized - Authentication required"),
+            403: OpenApiResponse(description="Forbidden - Insufficient permissions"),
+            404: OpenApiResponse(description="Project not found"),
+            500: OpenApiResponse(description="Internal server error"),
+        },
+        tags=["Project Members"],
+    )
+    def post(self, request, project_id):
+        """Handle bulk add members request."""
+        logger.info(
+            "Bulk add members request from user: %s, project_id: %s",
+            request.user.email,
+            project_id,
+        )
+
+        # Validate request data
+        serializer = ProjectMemberBulkRequestSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            errors = self._format_serializer_errors(serializer.errors)
+            logger.warning(
+                "Bulk add members validation failed for user %s. Errors: %s",
+                request.user.email,
+                errors,
+            )
+            return APIResponse.validation_error(
+                message="Validation failed", errors=errors
+            )
+
+        # Delegate to service layer
+        try:
+            result = self.project_service.add_members_bulk(
+                user=request.user,
+                project_id=project_id,
+                members=serializer.validated_data["members"],
+            )
+
+            # Serialize response
+            response_serializer = ProjectBulkOperationResponseSerializer(result)
+
+            logger.info(
+                "Bulk members added. Project: %s, Added: %d, Failed: %d",
+                project_id,
+                len(result["added"]),
+                len(result["failed"]),
+            )
+
+            return APIResponse.success(
+                message=f"Members added: {len(result['added'])} succeeded, {len(result['failed'])} failed",
+                data=response_serializer.data,
+            )
+
+        except ProjectNotFound as e:
+            logger.warning("Project not found. ID: %s", project_id)
+            return APIResponse.not_found(message=str(e))
+
+        except ProjectPermissionDenied as e:
+            logger.warning(
+                "Permission denied for user %s to add members to project %s",
+                request.user.email,
+                project_id,
+            )
+            return APIResponse.forbidden(message=str(e))
+
+        except Exception as e:
+            logger.error(
+                "Unexpected error during bulk add members for project %s. Error: %s",
+                project_id,
+                str(e),
+                exc_info=True,
+            )
+            return APIResponse.server_error(
+                message="An error occurred while adding members"
+            )
+
+    def _format_serializer_errors(self, errors):
+        """Format serializer errors to a flat dictionary."""
+        formatted = {}
+        for field, messages in errors.items():
+            if isinstance(messages, list):
+                formatted[field] = messages[0] if messages else "Invalid value"
+            else:
+                formatted[field] = str(messages)
+        return formatted
+
+
 class ProjectMemberRemoveView(ProjectServiceMixin, APIView):
     """
     Remove member from project endpoint.
@@ -1214,10 +1333,46 @@ class ProjectMemberUpdateRoleView(ProjectServiceMixin, APIView):
 
         except ProjectMemberNotFound as e:
             logger.warning("Member not found in project %s.", project_id)
-            return
+            return APIResponse.not_found(message=str(e))
 
+        except ProjectPermissionDenied as e:
+            logger.warning(
+                "Permission denied for user %s to update role in project %s",
+                request.user.email,
+                project_id,
+            )
+            return APIResponse.forbidden(message=str(e))
 
-# views/project_views.py (add this class)
+        except ValidationError as e:
+            logger.warning(
+                "Role update failed for user %s. Error: %s",
+                request.user.email,
+                str(e),
+            )
+            return APIResponse.conflict(
+                message=str(e.message) if hasattr(e, "message") else str(e)
+            )
+
+        except Exception as e:
+            logger.error(
+                "Unexpected error during update role for user %s. Error: %s",
+                request.user.email,
+                str(e),
+                exc_info=True,
+            )
+            return APIResponse.server_error(
+                message="An error occurred while updating the member role"
+            )
+
+    def _format_serializer_errors(self, errors):
+        """Format serializer errors to a flat dictionary."""
+        formatted = {}
+        for field, messages in errors.items():
+            if isinstance(messages, list):
+                formatted[field] = messages[0] if messages else "Invalid value"
+            else:
+                formatted[field] = str(messages)
+        return formatted
 
 
 class ProjectMemberUpdateTagsView(ProjectServiceMixin, APIView):
