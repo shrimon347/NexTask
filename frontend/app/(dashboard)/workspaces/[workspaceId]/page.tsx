@@ -86,8 +86,7 @@ export default function WorkspaceDetailPage() {
             is_archived: false,
         },
     });
-    console.log("projects:", projects);
-    console.log("projects type:", Array.isArray(projects));
+
     // ============ Computed Values ============
     const workspace = workspaceDetail || selectedWorkspace;
     const members = workspaceDetail?.members || [];
@@ -469,11 +468,12 @@ export default function WorkspaceDetailPage() {
             />
 
             <ProjectDialog
-                open={projectDialog.open}
+                isOpen={projectDialog.open}
                 onOpenChange={handleCloseProjectDialog}
                 onSubmit={handleProjectSubmit}
                 isLoading={isProjectDialogLoading}
                 mode={projectDialog.mode}
+                workspaceId={workspaceId}
                 initialValues={
                     projectDialog.mode === "update" && projectDialog.project
                         ? {

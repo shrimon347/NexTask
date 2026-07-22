@@ -585,6 +585,66 @@ class WorkspaceMemberAddView(WorkspaceServiceMixin, APIView):
         return formatted
 
 
+class WorkspaceMembersDropdownView(WorkspaceServiceMixin, APIView):
+    """
+    Get workspace members for dropdown selection.
+
+    GET /api/v1/workspaces/{workspace_id}/members/dropdown/
+
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="workspace_members_dropdown",
+        summary="List Workspace Members for Dropdown",
+        description="Get workspace members formatted for dropdown selection.",
+        responses={
+            200: OpenApiResponse(description="Members retrieved successfully"),
+            401: OpenApiResponse(description="Unauthorized"),
+            403: OpenApiResponse(description="Forbidden - Not a workspace member"),
+            404: OpenApiResponse(description="Workspace not found"),
+        },
+        tags=["Workspaces"],
+    )
+    def get(self, request, workspace_id):
+        """Handle workspace members dropdown request."""
+    
+        logger.info(
+            "Workspace members dropdown request. User: %s, Workspace: %s",
+            request.user.email,
+            workspace_id,
+        )
+
+        try:
+            # List all members
+            members = self.workspace_service.list_workspace_members_for_dropdown(
+                user=request.user,
+                workspace_id=workspace_id,
+            )
+
+            return APIResponse.success(
+                message="Workspace members retrieved successfully",
+                data=members,
+            )
+
+        except WorkspaceNotFound as e:
+            return APIResponse.not_found(message=str(e))
+
+        except WorkspacePermissionDenied as e:
+            return APIResponse.forbidden(message=str(e))
+
+        except Exception as e:
+            logger.error(
+                "Error retrieving workspace members. Error: %s",
+                str(e),
+                exc_info=True,
+            )
+            return APIResponse.server_error(
+                message="An error occurred while retrieving members"
+            )
+
+
 class WorkspaceMemberRemoveView(WorkspaceServiceMixin, APIView):
     """
     Remove member from workspace endpoint.

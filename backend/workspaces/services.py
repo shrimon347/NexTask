@@ -421,6 +421,65 @@ class WorkspaceService:
     # =========================================================================
     # MEMBER MANAGEMENT
     # =========================================================================
+    def list_workspace_members_for_dropdown(
+        self, user, workspace_id: str
+    ) -> List[Dict]:
+        """
+        List all workspace members formatted for dropdown selection.
+
+        Business Rules:
+        - User must be a workspace member to view members
+        - Returns simplified member data for dropdown UI
+        - Ordered by member name
+
+        Args:
+            user: User instance (request.user)
+            workspace_id: Workspace UUID as string
+
+        Returns:
+            List[Dict]: List of member dicts with id, email, name, profile_picture,
+
+        Raises:
+            WorkspaceNotFound: If workspace doesn't exist
+            WorkspacePermissionDenied: If user is not a member
+        """
+        self.logger.info(
+            "Listing workspace members for dropdown. Workspace: %s, User: %s",
+            workspace_id,
+            user.email,
+        )
+
+        # Get workspace and verify membership
+        workspace = self._get_workspace_by_id(workspace_id)
+        self._verify_membership(workspace, user)
+
+        # Get all members with user details - optimized query
+        memberships = (
+            WorkspaceMember.objects.filter(workspace=workspace)
+            .select_related("user")
+            .order_by("user__name")
+        )
+
+        members_data = []
+        for membership in memberships:
+            members_data.append(
+                {
+                    "id": str(membership.user.id),
+                    "email": membership.user.email,
+                    "name": membership.user.name,
+                    "profile_picture": getattr(
+                        membership.user, "profile_picture", None
+                    ),
+                }
+            )
+
+        self.logger.info(
+            "Workspace members for dropdown retrieved. Workspace: %s, Count: %d",
+            workspace_id,
+            len(members_data),
+        )
+
+        return members_data
 
     @transaction.atomic
     def add_member(

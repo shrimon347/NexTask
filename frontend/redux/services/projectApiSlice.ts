@@ -117,6 +117,19 @@ export const projectApiSlice = apiSlice.injectEndpoints({
             ],
         }),
 
+        // Add to your existing apiSlice
+        getWorkspaceMembersForDropdown: builder.query<
+            MemberDropdownItem[],
+            { workspaceId: string }
+        >({
+            query: ({ workspaceId }) => ({
+                url: `/workspaces/${workspaceId}/members/dropdown/`,
+                method: "GET",
+            }),
+            transformResponse: (response: ApiResponse<MemberDropdownItem[]>) =>
+                response.data,
+        }),
+
         // ============ STATUS & PROGRESS ============
 
         // Update project status
@@ -290,7 +303,7 @@ export const {
     useCreateProjectMutation,
     useUpdateProjectMutation,
     useDeleteProjectMutation,
-
+    useGetWorkspaceMembersForDropdownQuery,
     // Status & Progress Mutations
     useUpdateProjectStatusMutation,
     useUpdateProjectProgressMutation,

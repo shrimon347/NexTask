@@ -1,10 +1,13 @@
-// components/projects/ProjectDialog.tsx
+// components/projects/CreateProjectDialog.tsx
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
+import { toast } from "sonner";
 import * as z from "zod";
 
+import type { SelectedMember } from "@/components/projects/UserDropdown";
+import { UserDropdown } from "@/components/projects/UserDropdown";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -34,8 +37,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
-import { PlusCircle, Trash2 } from "lucide-react";
+import { useProjects } from "@/hooks/useProject";
 import { useEffect } from "react";
 
 // =============================================================================
@@ -43,17 +45,11 @@ import { useEffect } from "react";
 // =============================================================================
 
 const PROJECT_STATUS_OPTIONS = [
-    { value: "planning", label: "Planning", color: "bg-blue-500" },
-    { value: "in_progress", label: "In Progress", color: "bg-yellow-500" },
-    { value: "on_hold", label: "On Hold", color: "bg-orange-500" },
-    { value: "completed", label: "Completed", color: "bg-green-500" },
-    { value: "cancelled", label: "Cancelled", color: "bg-red-500" },
-] as const;
-
-const MEMBER_ROLE_OPTIONS = [
-    { value: "manager", label: "Manager" },
-    { value: "contributor", label: "Contributor" },
-    { value: "viewer", label: "Viewer" },
+    { value: "planning", label: "Planning" },
+    { value: "in_progress", label: "In Progress" },
+    { value: "on_hold", label: "On Hold" },
+    { value: "completed", label: "Completed" },
+    { value: "cancelled", label: "Cancelled" },
 ] as const;
 
 // =============================================================================
@@ -61,8 +57,8 @@ const MEMBER_ROLE_OPTIONS = [
 // =============================================================================
 
 const memberSchema = z.object({
-    user: z.string().min(1, "User ID is required"),
-    role: z.enum(["manager", "contributor", "viewer"]).default("contributor"),
+    user: z.string().min(1, "Please select a user"),
+    role: z.enum(["manager", "contributor", "viewer"]),
 });
 
 const projectSchema = z
@@ -87,11 +83,6 @@ const projectSchema = z
             .default("planning"),
         start_date: z.string().optional().nullable(),
         due_date: z.string().optional().nullable(),
-        progress: z
-            .number()
-            .min(0, "Progress cannot be less than 0%")
-            .max(100, "Progress cannot exceed 100%")
-            .default(0),
         tags: z
             .string()
             .max(500, "Tags must be at most 500 characters")
@@ -105,24 +96,6 @@ const projectSchema = z
     })
     .refine(
         (data) => {
-            // Validate progress matches status
-            if (data.status === "planning" && data.progress > 0) {
-                return false;
-            }
-            if (data.status === "completed" && data.progress < 100) {
-                return false;
-            }
-            return true;
-        },
-        {
-            message:
-                "Progress must be 0% for planning and 100% for completed projects",
-            path: ["progress"],
-        },
-    )
-    .refine(
-        (data) => {
-            // Validate due date is after start date
             if (data.start_date && data.due_date) {
                 return new Date(data.due_date) >= new Date(data.start_date);
             }
@@ -134,32 +107,28 @@ const projectSchema = z
         },
     );
 
-export type ProjectForm = z.infer<typeof projectSchema>;
+export type CreateProjectFormData = z.infer<typeof projectSchema>;
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface ProjectDialogProps {
-    open: boolean;
+interface CreateProjectDialogProps {
+    isOpen: boolean;
     onOpenChange: (open: boolean) => void;
-    onSubmit: (data: ProjectForm) => Promise<void>;
-    isLoading?: boolean;
-    mode?: "create" | "update";
-    initialValues?: Partial<ProjectForm>;
+    workspaceId: string;
 }
 
 // =============================================================================
 // Default Values
 // =============================================================================
 
-const DEFAULT_VALUES: ProjectForm = {
+const DEFAULT_VALUES: CreateProjectFormData = {
     title: "",
     description: "",
     status: "planning",
     start_date: null,
     due_date: null,
-    progress: 0,
     tags: "",
     members: [],
 };
@@ -168,63 +137,79 @@ const DEFAULT_VALUES: ProjectForm = {
 // Component
 // =============================================================================
 
-export function ProjectDialog({
-    open,
+export const ProjectDialog = ({
+    isOpen,
     onOpenChange,
-    onSubmit,
-    isLoading = false,
-    mode = "create",
-    initialValues,
-}: ProjectDialogProps) {
-    const isUpdate = mode === "update";
+    workspaceId,
+}: CreateProjectDialogProps) => {
+    const { isCreating, createProject } = useProjects({
+        workspaceId,
+        autoFetch: false,
+    });
 
-    const form = useForm<ProjectForm>({
+    const form = useForm<CreateProjectFormData>({
         resolver: zodResolver(projectSchema),
-        defaultValues: { ...DEFAULT_VALUES, ...initialValues },
+        defaultValues: DEFAULT_VALUES,
     });
 
-    const { fields, append, remove } = useFieldArray({
-        control: form.control,
-        name: "members",
-    });
-
-    // Reset form when dialog opens
+    // Reset form when dialog opens/closes
     useEffect(() => {
-        if (!open) return;
-        form.reset({ ...DEFAULT_VALUES, ...initialValues });
-    }, [open, initialValues, form]);
+        if (!isOpen) {
+            form.reset(DEFAULT_VALUES);
+        }
+    }, [isOpen, form]);
 
-    // Watch status for conditional progress
-    const currentStatus = form.watch("status");
+    const members = form.watch("members") || [];
 
-    const handleSubmit = async (data: ProjectForm) => {
-        await onSubmit(data);
+    const onSubmit = async (values: CreateProjectFormData) => {
+        const cleanedData = {
+            ...values,
+            members: values.members?.filter((m) => m.user) || [],
+        };
+        try {
+            await createProject(cleanedData);
+            toast.success("Project created successfully");
+            form.reset(DEFAULT_VALUES);
+            onOpenChange(false);
+        } catch (error: any) {
+            toast.error(error?.data?.message || "Failed to create project");
+        }
     };
 
     const handleAddMember = () => {
-        if (fields.length >= 50) return;
-        append({ user: "", role: "contributor" });
+        if (members.length >= 50) return;
+        form.setValue("members", [
+            ...members,
+            { user: "", role: "contributor" },
+        ]);
     };
 
-    // ============ Labels ============
-    const title = isUpdate ? "Edit Project" : "Create Project";
-    const description = isUpdate
-        ? "Update the project details below."
-        : "Fill in the details to create a new project.";
-    const submitLabel = isUpdate ? "Save Changes" : "Create Project";
-    const loadingLabel = isUpdate ? "Saving..." : "Creating...";
+    const handleRemoveMember = (index: number) => {
+        form.setValue(
+            "members",
+            members.filter((_, i) => i !== index),
+        );
+    };
+
+    const handleMemberChange = (index: number, member: SelectedMember) => {
+        const updatedMembers = [...members];
+        updatedMembers[index] = { user: member.user, role: member.role };
+        form.setValue("members", updatedMembers);
+    };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange} modal>
+        <Dialog open={isOpen} onOpenChange={onOpenChange} modal>
             <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle className="text-xl">{title}</DialogTitle>
-                    <DialogDescription>{description}</DialogDescription>
+                    <DialogTitle>Create Project</DialogTitle>
+                    <DialogDescription>
+                        Create a new project to get started
+                    </DialogDescription>
                 </DialogHeader>
 
                 <form
-                    id="project-form"
-                    onSubmit={form.handleSubmit(handleSubmit)}
+                    id="create-project-form"
+                    onSubmit={form.handleSubmit(onSubmit)}
                 >
                     <FieldGroup>
                         {/* ===== Project Title ===== */}
@@ -233,10 +218,7 @@ export function ProjectDialog({
                             control={form.control}
                             render={({ field, fieldState }) => (
                                 <Field data-invalid={fieldState.invalid}>
-                                    <FieldLabel
-                                        htmlFor="project-title"
-                                        required
-                                    >
+                                    <FieldLabel htmlFor="project-title">
                                         Project Title
                                     </FieldLabel>
                                     <Input
@@ -310,8 +292,7 @@ export function ProjectDialog({
                                         value={field.value || ""}
                                     />
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Separate tags with commas. Applied to
-                                        your membership.
+                                        Separate tags with commas.
                                     </p>
                                     {fieldState.invalid && (
                                         <FieldError
@@ -322,51 +303,39 @@ export function ProjectDialog({
                             )}
                         />
 
-                        {/* ===== Status & Progress ===== */}
-                        <div className="grid grid-cols-1">
-                            <Controller
-                                name="status"
-                                control={form.control}
-                                render={({ field, fieldState }) => (
-                                    <Field data-invalid={fieldState.invalid}>
-                                        <FieldLabel>Status</FieldLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            value={field.value}
-                                        >
-                                            <SelectTrigger className="w-full h-10">
-                                                <SelectValue placeholder="Select status" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {PROJECT_STATUS_OPTIONS.map(
-                                                    (status) => (
-                                                        <SelectItem
-                                                            key={status.value}
-                                                            value={status.value}
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <span
-                                                                    className={cn(
-                                                                        "h-2 w-2 rounded-full",
-                                                                        status.color,
-                                                                    )}
-                                                                />
-                                                                {status.label}
-                                                            </div>
-                                                        </SelectItem>
-                                                    ),
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                        {fieldState.invalid && (
-                                            <FieldError
-                                                errors={[fieldState.error]}
-                                            />
-                                        )}
-                                    </Field>
-                                )}
-                            />
-                        </div>
+                        {/* ===== Status ===== */}
+                        <Controller
+                            name="status"
+                            control={form.control}
+                            render={({ field, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                    <FieldLabel>Status</FieldLabel>
+                                    <Select
+                                        onValueChange={field.onChange}
+                                        value={field.value}
+                                    >
+                                        <SelectTrigger className="w-full h-10">
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {PROJECT_STATUS_OPTIONS.map((s) => (
+                                                <SelectItem
+                                                    key={s.value}
+                                                    value={s.value}
+                                                >
+                                                    {s.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    {fieldState.invalid && (
+                                        <FieldError
+                                            errors={[fieldState.error]}
+                                        />
+                                    )}
+                                </Field>
+                            )}
+                        />
 
                         {/* ===== Start Date & Due Date ===== */}
                         <div className="grid grid-cols-2 gap-4">
@@ -382,10 +351,11 @@ export function ProjectDialog({
                                             type="date"
                                             id="start-date"
                                             value={field.value || ""}
-                                            onChange={(e) => {
-                                                const value = e.target.value;
-                                                field.onChange(value || null);
-                                            }}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value || null,
+                                                )
+                                            }
                                             className="h-10"
                                         />
                                         {fieldState.invalid && (
@@ -396,7 +366,6 @@ export function ProjectDialog({
                                     </Field>
                                 )}
                             />
-
                             <Controller
                                 name="due_date"
                                 control={form.control}
@@ -409,10 +378,11 @@ export function ProjectDialog({
                                             type="date"
                                             id="due-date"
                                             value={field.value || ""}
-                                            onChange={(e) => {
-                                                const value = e.target.value;
-                                                field.onChange(value || null);
-                                            }}
+                                            onChange={(e) =>
+                                                field.onChange(
+                                                    e.target.value || null,
+                                                )
+                                            }
                                             className="h-10"
                                         />
                                         {fieldState.invalid && (
@@ -427,156 +397,49 @@ export function ProjectDialog({
 
                         {/* ===== Members ===== */}
                         <Field>
-                            <div className="flex items-center justify-between mb-2">
-                                <FieldLabel>Team Members</FieldLabel>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1 h-8"
-                                    onClick={handleAddMember}
-                                    disabled={fields.length >= 50}
-                                >
-                                    <PlusCircle className="h-3.5 w-3.5" />
-                                    Add Member
-                                </Button>
-                            </div>
+                            <FieldLabel>Team Member</FieldLabel>
 
-                            {fields.length === 0 ? (
-                                <div className="text-center py-4 border border-dashed rounded-lg">
-                                    <p className="text-sm text-muted-foreground">
-                                        No members added yet. Add team members
-                                        to collaborate.
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
-                                    {fields.map((memberField, index) => (
-                                        <div
-                                            key={memberField.id}
-                                            className="flex items-center gap-2 p-2 border rounded-lg bg-muted/30"
-                                        >
-                                            <Controller
-                                                name={`members.${index}.user`}
-                                                control={form.control}
-                                                render={({
-                                                    field,
-                                                    fieldState,
-                                                }) => (
-                                                    <div className="flex-1 min-w-0">
-                                                        <Input
-                                                            {...field}
-                                                            placeholder="User ID (UUID)"
-                                                            className="h-9 text-sm"
-                                                            aria-invalid={
-                                                                fieldState.invalid
-                                                            }
-                                                        />
-                                                        {fieldState.invalid && (
-                                                            <p className="text-xs text-destructive mt-0.5">
-                                                                {
-                                                                    fieldState
-                                                                        .error
-                                                                        ?.message
-                                                                }
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            />
-                                            <Controller
-                                                name={`members.${index}.role`}
-                                                control={form.control}
-                                                render={({ field }) => (
-                                                    <Select
-                                                        onValueChange={
-                                                            field.onChange
-                                                        }
-                                                        value={field.value}
-                                                    >
-                                                        <SelectTrigger className="w-[130px] h-9 shrink-0">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {MEMBER_ROLE_OPTIONS.map(
-                                                                (role) => (
-                                                                    <SelectItem
-                                                                        key={
-                                                                            role.value
-                                                                        }
-                                                                        value={
-                                                                            role.value
-                                                                        }
-                                                                    >
-                                                                        {
-                                                                            role.label
-                                                                        }
-                                                                    </SelectItem>
-                                                                ),
-                                                            )}
-                                                        </SelectContent>
-                                                    </Select>
-                                                )}
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                                onClick={() => remove(index)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <UserDropdown
+                                value={{
+                                    user: form.watch("members.0.user") || "",
+                                    role:
+                                        form.watch("members.0.role") ||
+                                        "contributor",
+                                }}
+                                workspaceId={workspaceId}
+                                placeholder="Select a team member..."
+                                onChange={(member) => {
+                                    form.setValue("members", [member], {
+                                        shouldDirty: true,
+                                        shouldValidate: true,
+                                    });
+                                }}
+                            />
 
-                            {fields.length > 0 && (
-                                <p className="text-xs text-muted-foreground mt-2">
-                                    {fields.length}/50 members added. Members
-                                    must be workspace members first.
-                                </p>
-                            )}
+                            <FieldError
+                                errors={[form.formState.errors.members]}
+                            />
                         </Field>
                     </FieldGroup>
 
-                    {/* ===== Footer ===== */}
                     <DialogFooter className="mt-6 gap-2 sm:gap-0">
                         <Button
                             type="button"
                             variant="outline"
                             onClick={() => {
-                                form.reset({
-                                    ...DEFAULT_VALUES,
-                                    ...initialValues,
-                                });
+                                form.reset(DEFAULT_VALUES);
                                 onOpenChange(false);
                             }}
-                            disabled={isLoading}
+                            disabled={isCreating}
                         >
                             Cancel
                         </Button>
-                        <Button type="submit" disabled={isLoading}>
-                            {isLoading ? (
-                                <>
-                                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                    {loadingLabel}
-                                </>
-                            ) : (
-                                submitLabel
-                            )}
+                        <Button type="submit" disabled={isCreating}>
+                            {isCreating ? "Creating..." : "Create Project"}
                         </Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
         </Dialog>
     );
-}
-
-// =============================================================================
-// Re-export for EditProjectDialog
-// =============================================================================
-
-export { MEMBER_ROLE_OPTIONS, PROJECT_STATUS_OPTIONS, projectSchema };
-export type { ProjectDialogProps };
+};

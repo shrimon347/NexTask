@@ -16,6 +16,12 @@ urlpatterns = [
         views.WorkspaceDetailView.as_view(),
         name="workspace-detail",
     ),
+    # Workspace members list (for dropdown)
+    path(
+        "workspaces/<uuid:workspace_id>/members/dropdown/",
+        views.WorkspaceMembersDropdownView.as_view(),
+        name="workspace-members-deopdown",
+    ),
     # Member Management
     path(
         "workspaces/<uuid:workspace_id>/members/add/",
